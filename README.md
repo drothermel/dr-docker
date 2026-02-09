@@ -35,11 +35,34 @@ Disallowed in this repository:
 - `AGENTS.md`
 - `CLAUDE.md`
 
-## Quickstart (Placeholders)
+## Quickstart
 
-1. Clone repo and install dependencies (TBD).
-2. Configure Docker and Langfuse runtime integration settings (TBD).
-3. Run primitive-level validation/tests (TBD).
-4. Consume exported contracts from downstream runtimes (TBD).
+1. Install development dependencies:
+   ```bash
+   uv sync --group dev
+   ```
+2. Run tests:
+   ```bash
+   uv run pytest -q
+   ```
+3. Construct contract models in Python:
+   ```python
+   from nl_runtime_primitives import DockerRuntimeRequest, TraceEventRequest
 
-Until implementation details are finalized, treat this repo primarily as contract and boundary guidance.
+   docker_req = DockerRuntimeRequest.model_validate({
+       "image": "python:3.12-slim",
+       "command": ["python", "-c", "print('ok')"],
+       "timeout_seconds": 10,
+   })
+
+   langfuse_trace = TraceEventRequest.model_validate({
+       "event_name": "runtime-primitive-test",
+       "session_id": "session-123",
+   })
+
+   print(docker_req.model_dump())
+   print(langfuse_trace.model_dump())
+   ```
+4. Consume exported contracts from downstream runtimes.
+
+This repo is currently a schema-only first slice for runtime integration primitives; orchestration remains out of scope.
