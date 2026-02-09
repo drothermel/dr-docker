@@ -281,16 +281,40 @@ class LangfuseTraceEmitter:
         assert client is not None
 
         try:
-            trace = client.trace(
-                name=event.event_name,
-                session_id=event.session_id,
-                tags=event.tags,
-                metadata=event.metadata,
-            )
+            trace_id: str | None = None
+            if hasattr(client, "create_event"):
+                input_payload: dict[str, object] = {}
+                if event.tags:
+                    input_payload["tags"] = event.tags
+                if event.session_id is not None:
+                    input_payload["session_id"] = event.session_id
+                create_event_kwargs: dict[str, object] = {
+                    "name": event.event_name,
+                    "metadata": event.metadata,
+                }
+                if input_payload:
+                    create_event_kwargs["input"] = input_payload
+                client.create_event(**create_event_kwargs)
+                get_trace_id = getattr(client, "get_current_trace_id", None)
+                if callable(get_trace_id):
+                    trace_id = get_trace_id()
+            elif hasattr(client, "trace"):
+                trace = client.trace(
+                    name=event.event_name,
+                    session_id=event.session_id,
+                    tags=event.tags,
+                    metadata=event.metadata,
+                )
+                trace_id = getattr(trace, "id", None) or getattr(
+                    trace, "trace_id", None
+                )
+            else:
+                raise RuntimeError(
+                    "Langfuse client is missing both create_event and trace APIs"
+                )
             flush = getattr(client, "flush", None)
             if callable(flush):
                 flush()
-            trace_id = getattr(trace, "id", None) or getattr(trace, "trace_id", None)
             return TraceAck(accepted=True, trace_id=trace_id)
         except Exception as exc:
             return TraceAck(

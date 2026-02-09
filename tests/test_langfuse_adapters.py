@@ -25,6 +25,7 @@ class _PromptResult:
 class _FakeLangfuseClient:
     def __init__(self) -> None:
         self.trace_flushed = False
+        self._trace_id = "trace_123"
 
     def get_prompt(self, name: str, label: str | None = None, version: int | None = None) -> _PromptResult:
         del name, label, version
@@ -35,21 +36,18 @@ class _FakeLangfuseClient:
             ]
         )
 
-    def trace(
+    def create_event(
         self,
         *,
         name: str,
-        session_id: str | None,
-        tags: list[str],
-        metadata: dict[str, object],
+        input: object | None = None,
+        metadata: object | None = None,
     ):
-        del name, session_id, tags, metadata
+        del name, input, metadata
+        return object()
 
-        @dataclass
-        class _Trace:
-            id: str
-
-        return _Trace(id="trace_123")
+    def get_current_trace_id(self) -> str:
+        return self._trace_id
 
     def flush(self) -> None:
         self.trace_flushed = True
@@ -117,15 +115,14 @@ def test_prompt_provider_maps_auth_errors() -> None:
 
 def test_trace_emitter_maps_unavailable_errors() -> None:
     class _UnavailableClient:
-        def trace(
+        def create_event(
             self,
             *,
             name: str,
-            session_id: str | None,
-            tags: list[str],
-            metadata: dict[str, object],
+            input: object | None = None,
+            metadata: object | None = None,
         ):
-            del name, session_id, tags, metadata
+            del name, input, metadata
             raise RuntimeError("connection refused")
 
     emitter = LangfuseTraceEmitter(client=_UnavailableClient())
@@ -139,15 +136,14 @@ def test_trace_emitter_maps_unavailable_errors() -> None:
 
 def test_trace_emitter_maps_internal_errors() -> None:
     class _InternalClient:
-        def trace(
+        def create_event(
             self,
             *,
             name: str,
-            session_id: str | None,
-            tags: list[str],
-            metadata: dict[str, object],
+            input: object | None = None,
+            metadata: object | None = None,
         ):
-            del name, session_id, tags, metadata
+            del name, input, metadata
             raise RuntimeError("unexpected schema mismatch")
 
     emitter = LangfuseTraceEmitter(client=_InternalClient())
