@@ -9,6 +9,11 @@ from .adapters import (
 )
 from .docker_contract import DockerMount, DockerRuntimeRequest, DockerRuntimeResult
 from .errors import ErrorCode, ErrorEnvelope
+from .langfuse_adapter import (
+    LangfuseConfig,
+    LangfusePromptProvider,
+    LangfuseTraceEmitter,
+)
 from .langfuse_contract import (
     PromptFetchRequest,
     PromptPayload,
@@ -38,4 +43,7 @@ __all__ = [
     "RuntimePrimitivesAdapter",
     "StubRuntimePrimitivesAdapter",
     "LocalSubprocessRuntimeAdapter",
+    "LangfuseConfig",
+    "LangfusePromptProvider",
+    "LangfuseTraceEmitter",
 ]
