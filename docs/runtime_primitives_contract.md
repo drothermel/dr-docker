@@ -28,6 +28,13 @@ Define the contract surface owned by `nl-runtime-primitives` for runtime integra
 - Defines validation constraints for instrumentation primitives
 - Exposes deterministic, typed interfaces only
 
+3. Adapter protocol layer
+- `execute_in_runtime(request) -> DockerRuntimeResult`
+- `fetch_prompt(request) -> PromptPayload`
+- `emit_trace(event) -> TraceAck`
+- Infra failures use typed `ErrorEnvelope` semantics (or `RuntimePrimitiveError`
+  for `fetch_prompt` failures).
+
 ## Cross-repo interface model
 
 - `nl_latents` consumes runtime primitives and implements orchestration/execution flows

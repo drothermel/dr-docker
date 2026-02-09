@@ -66,3 +66,5 @@ Disallowed in this repository:
 4. Consume exported contracts from downstream runtimes.
 
 This repo is currently a schema-only first slice for runtime integration primitives; orchestration remains out of scope.
+It now also includes a protocol/stub adapter layer for wiring consumers in
+`nl_latents` before concrete runtime implementations are added.

@@ -1,5 +1,12 @@
 """Typed primitive contracts for Docker and Langfuse runtime integrations."""
 
+from .adapters import (
+    PromptProvider,
+    RuntimeAdapter,
+    RuntimePrimitiveError,
+    RuntimePrimitivesAdapter,
+    TraceEmitter,
+)
 from .docker_contract import DockerMount, DockerRuntimeRequest, DockerRuntimeResult
 from .errors import ErrorCode, ErrorEnvelope
 from .langfuse_contract import (
@@ -8,6 +15,7 @@ from .langfuse_contract import (
     TraceAck,
     TraceEventRequest,
 )
+from .stubs import StubRuntimePrimitivesAdapter
 from .version import CONTRACT_VERSION, __version__
 
 __all__ = [
@@ -22,4 +30,10 @@ __all__ = [
     "PromptPayload",
     "TraceEventRequest",
     "TraceAck",
+    "RuntimePrimitiveError",
+    "RuntimeAdapter",
+    "PromptProvider",
+    "TraceEmitter",
+    "RuntimePrimitivesAdapter",
+    "StubRuntimePrimitivesAdapter",
 ]
