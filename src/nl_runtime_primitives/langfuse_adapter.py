@@ -58,40 +58,33 @@ def _error(
 
 
 def _map_exception(exc: Exception, *, operation: str) -> ErrorEnvelope:
-    # Langfuse currently does not expose stable typed exceptions for all failure
-    # modes, so we classify by message tokens as a pragmatic compatibility layer.
-    text = str(exc).lower()
     details: dict[str, object] = {
         "operation": operation,
         "exception_type": type(exc).__name__,
     }
-
-    auth_tokens = ("401", "403", "unauthorized", "forbidden", "api key", "auth ")
-    auth_phrases = (" auth", "authentication", "invalid key", "missing key")
-    if any(token in text for token in auth_tokens) or any(
-        phrase in text for phrase in auth_phrases
-    ):
+    status_code = _extract_status_code(exc)
+    if status_code in (401, 403):
         return _error(
             ErrorCode.AUTH,
             "Langfuse authentication failed",
             retriable=False,
             details=details,
         )
-
-    if any(
-        token in text
-        for token in (
-            "connection",
-            "timeout",
-            "temporar",
-            "unavailable",
-            "refused",
-            "dns",
-            "429",
-            "rate limit",
-            "service unavailable",
+    if status_code in (400, 404, 409, 410, 422):
+        return _error(
+            ErrorCode.MALFORMED_REQUEST,
+            "Langfuse request was rejected",
+            retriable=False,
+            details={**details, "status_code": status_code},
         )
-    ):
+    if status_code in (408, 425, 429, 500, 502, 503, 504):
+        return _error(
+            ErrorCode.UNAVAILABLE,
+            "Langfuse is unavailable",
+            retriable=True,
+            details={**details, "status_code": status_code},
+        )
+    if isinstance(exc, (ConnectionError, TimeoutError)):
         return _error(
             ErrorCode.UNAVAILABLE,
             "Langfuse is unavailable",
@@ -105,6 +98,17 @@ def _map_exception(exc: Exception, *, operation: str) -> ErrorEnvelope:
         retriable=False,
         details=details,
     )
+
+
+def _extract_status_code(exc: Exception) -> int | None:
+    status_code = getattr(exc, "status_code", None)
+    if isinstance(status_code, int):
+        return status_code
+    response = getattr(exc, "response", None)
+    response_code = getattr(response, "status_code", None)
+    if isinstance(response_code, int):
+        return response_code
+    return None
 
 
 def _default_langfuse_client_factory(config: LangfuseConfig) -> Any:
@@ -156,13 +160,6 @@ def _resolve_client(
                 for token in (
                     "langfuse_public_key",
                     "langfuse_secret_key",
-                    "missing key",
-                    "invalid key",
-                    "api key",
-                    " auth",
-                    "authentication",
-                    "unauthorized",
-                    "forbidden",
                 )
             ):
                 err = _error(
@@ -184,7 +181,7 @@ def _resolve_client(
 def _compile_prompt_template(prompt: Any, variables: dict[str, object]) -> Any:
     compile_fn = getattr(prompt, "compile", None)
     if not callable(compile_fn):
-        return prompt
+        raise TypeError("Langfuse prompt does not expose a callable compile method")
 
     try:
         params = list(signature(compile_fn).parameters.values())
@@ -244,58 +241,62 @@ def _normalize_text_content(value: Any) -> str:
     return ""
 
 
-def _extract_prompt_content(raw_prompt: Any) -> tuple[str | None, str]:
-    source = raw_prompt
-    if hasattr(raw_prompt, "prompt"):
-        source = raw_prompt.prompt
-    elif isinstance(raw_prompt, dict) and "prompt" in raw_prompt:
-        source = raw_prompt["prompt"]
-
-    if isinstance(source, str):
-        task_content = source.strip()
-        if task_content:
-            return None, task_content
-
-    if isinstance(source, list):
-        system_parts: list[str] = []
-        task_parts: list[str] = []
-        for msg in source:
-            if not isinstance(msg, dict):
-                continue
-            content = _normalize_text_content(msg.get("content"))
-            if not content:
-                continue
-            role = str(msg.get("role", "")).lower()
-            if role == "system":
-                system_parts.append(content)
-            else:
-                task_parts.append(content)
-        task_content = "\n".join(task_parts).strip()
-        if task_content:
-            system_content = "\n".join(system_parts).strip() or None
-            return system_content, task_content
-
-    if isinstance(source, dict):
-        system = _normalize_text_content(source.get("system_content")).strip() or None
-        task = _normalize_text_content(source.get("task_content")).strip()
-        if task:
-            return system, task
-
-    system_attr = getattr(raw_prompt, "system_content", None)
-    task_attr = getattr(raw_prompt, "task_content", None)
-    system = _normalize_text_content(system_attr).strip() or None
-    task = _normalize_text_content(task_attr).strip()
-    if task:
-        return system, task
-
-    raise RuntimePrimitiveError(
-        _error(
-            ErrorCode.INTERNAL_ERROR,
-            "Langfuse prompt is missing required task_content",
-            retriable=False,
-            details={"operation": "fetch_prompt", "reason": "missing_task_content"},
+def _extract_prompt_content(raw_prompt: Any) -> tuple[str, str]:
+    if not isinstance(raw_prompt, list):
+        raise RuntimePrimitiveError(
+            _error(
+                ErrorCode.MALFORMED_REQUEST,
+                "Langfuse prompt must compile to a chat message list",
+                retriable=False,
+                details={"operation": "fetch_prompt", "reason": "invalid_prompt_shape"},
+            )
         )
-    )
+
+    system_parts: list[str] = []
+    user_contents: list[str] = []
+    for msg in raw_prompt:
+        if not isinstance(msg, dict):
+            raise RuntimePrimitiveError(
+                _error(
+                    ErrorCode.MALFORMED_REQUEST,
+                    "Langfuse prompt message must be an object",
+                    retriable=False,
+                    details={
+                        "operation": "fetch_prompt",
+                        "reason": "invalid_message_shape",
+                    },
+                )
+            )
+
+        role = str(msg.get("role", "")).lower()
+        content = _normalize_text_content(msg.get("content")).strip()
+        if role == "system":
+            if content:
+                system_parts.append(content)
+            continue
+        if role == "user":
+            if content:
+                user_contents.append(content)
+            continue
+        raise RuntimePrimitiveError(
+            _error(
+                ErrorCode.MALFORMED_REQUEST,
+                "Langfuse prompt contains unsupported message role",
+                retriable=False,
+                details={"operation": "fetch_prompt", "reason": "invalid_message_role"},
+            )
+        )
+
+    if len(user_contents) != 1:
+        raise RuntimePrimitiveError(
+            _error(
+                ErrorCode.MALFORMED_REQUEST,
+                "Langfuse prompt must contain exactly one user message",
+                retriable=False,
+                details={"operation": "fetch_prompt", "reason": "invalid_user_message_count"},
+            )
+        )
+    return "\n\n".join(system_parts), user_contents[0]
 
 
 class LangfusePromptProvider:
@@ -384,10 +385,6 @@ class LangfuseTraceEmitter:
 
         try:
             trace_id: str | None = None
-            if not hasattr(client, "create_event"):
-                raise RuntimeError(
-                    "Langfuse client is missing required create_event API"
-                )
             client.create_event(**_create_event_request_kwargs(event))
             get_trace_id = getattr(client, "get_current_trace_id", None)
             if callable(get_trace_id):

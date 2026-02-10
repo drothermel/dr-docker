@@ -15,6 +15,12 @@ from nl_runtime_primitives import (
 )
 
 
+class _ApiErrorLike(RuntimeError):
+    def __init__(self, status_code: int) -> None:
+        super().__init__(f"api status {status_code}")
+        self.status_code = status_code
+
+
 @dataclass
 class _PromptResult:
     prompt: list[dict[str, str]]
@@ -219,7 +225,7 @@ def test_prompt_provider_maps_auth_errors() -> None:
     class _AuthFailClient:
         def get_prompt(self, name: str, label: str | None = None, version: int | None = None):
             del name, label, version
-            raise RuntimeError("401 unauthorized")
+            raise _ApiErrorLike(401)
 
     provider = LangfusePromptProvider(client=_AuthFailClient())
 
@@ -254,7 +260,7 @@ def test_trace_emitter_maps_unavailable_errors() -> None:
             metadata: object | None = None,
         ):
             del name, input, metadata
-            raise RuntimeError("connection refused")
+            raise _ApiErrorLike(503)
 
     emitter = LangfuseTraceEmitter(client=_UnavailableClient())
     ack = emitter.emit_trace(TraceEventRequest(event_name="runtime.step"))
@@ -475,8 +481,8 @@ def test_prompt_provider_fails_fast_when_task_content_missing() -> None:
     with pytest.raises(RuntimePrimitiveError) as exc_info:
         provider.fetch_prompt(PromptFetchRequest(prompt_name="x"))
 
-    assert exc_info.value.error.code == ErrorCode.INTERNAL_ERROR
-    assert exc_info.value.error.details.get("reason") == "missing_task_content"
+    assert exc_info.value.error.code == ErrorCode.MALFORMED_REQUEST
+    assert exc_info.value.error.details.get("reason") == "invalid_user_message_count"
 
 
 def test_prompt_provider_allows_missing_system_content() -> None:
@@ -498,8 +504,32 @@ def test_prompt_provider_allows_missing_system_content() -> None:
     provider = LangfusePromptProvider(client=_Client())
     payload = provider.fetch_prompt(PromptFetchRequest(prompt_name="x"))
 
-    assert payload.system_content is None
+    assert payload.system_content == ""
     assert payload.task_content == "execute task"
+
+
+def test_prompt_provider_rejects_non_chat_prompt_shape() -> None:
+    class _Prompt:
+        labels = ["prod"]
+        version = 1
+
+        def compile(self, **variables: object):
+            del variables
+            return {"role": "user", "content": "execute task"}
+
+    class _Client:
+        def get_prompt(
+            self, name: str, label: str | None = None, version: int | None = None
+        ) -> _Prompt:
+            del name, label, version
+            return _Prompt()
+
+    provider = LangfusePromptProvider(client=_Client())
+    with pytest.raises(RuntimePrimitiveError) as exc_info:
+        provider.fetch_prompt(PromptFetchRequest(prompt_name="x"))
+
+    assert exc_info.value.error.code == ErrorCode.MALFORMED_REQUEST
+    assert exc_info.value.error.details.get("reason") == "invalid_prompt_shape"
 
 
 def test_prompt_provider_rejects_compile_without_kwargs_support() -> None:
