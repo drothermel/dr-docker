@@ -1,77 +1,77 @@
 # nl-runtime-primitives
 
-Runtime integration primitives for the NL stack.
+Frozen runtime integration contracts for the NL stack.
 
 ## Purpose
 
-This repository owns foundational runtime integration contracts and helpers for:
-- Docker runtime primitives
-- Langfuse integration primitives
-- Adapter protocols used by loop/orchestration clients
+This repo provides the minimum stable contract surface needed by `nl_latents`:
+- Docker runtime request/result contracts
+- Langfuse prompt/trace contracts
+- Adapter protocols
+- Typed error envelopes
 
-Ownership is limited to integration primitives and their contracts. This repo is not the home for loop logic or prompt primitives.
+If work does not directly strengthen these contracts, it does not belong here.
 
-## Scope
+## Freeze Policy
 
-Allowed in this repository:
-- Typed interfaces and schemas for Docker/Langfuse runtime integration
-- Runtime integration adapters and validation utilities (primitive level)
-- Contract docs and strict guarantees for downstream runtimes
+This repository is in maintenance/freeze mode.
+- No feature expansion
+- No compatibility shims
+- No orchestration or policy behavior
+- Changes are contract-hardening, bug fixes, or security fixes only
 
-Disallowed in this repository:
-- Loop orchestration, controller state machines, scheduling, or runtime policy loops
-- Exploration/exploitation selectors or budget execution loops
-- Prompt primitive ownership, prompt block registries, or prompt composition logic
+Breaking changes require:
+1. Explicit contract proposal from downstream (`nl_latents`)
+2. Coordinated migration plan
+3. `CONTRACT_VERSION` bump
 
-## Repo Routing (3-Repo Boundary)
+## Out Of Scope
 
-- `nl-runtime-primitives` (this repo): Docker/Langfuse runtime integration primitives and contracts
-- `nl_latents`: Loop orchestration, runtime control, selectors, policies, and execution flows
-- `genprompt`: Prompt primitives, block registries, arm catalogs, and prompt composition contracts
+- Loop orchestration/runtime control/policy logic -> `nl_latents`
+- Prompt primitive ownership/composition/catalog logic -> `genprompt`
 
-## Docs
+## Contract Guarantees
 
-- `docs/runtime_primitives_contract.md`
-- `docs/loop_architecture_paradigm.md`
-- `AGENTS.md`
-- `CLAUDE.md`
+- `DockerRuntimeResult(ok=False)` requires `error`
+- `TraceAck(accepted=False)` requires `error`
+- Successful envelopes must not include `error`
+- `PromptPayload.system_content` is always a string (default `""`)
+- Prompt extraction expects chat messages with exactly one `user` message
+- Error envelopes are typed (`ErrorCode`) with non-empty message and JSON-safe details
 
-## Quickstart
+## Public Surface
 
-1. Install development dependencies:
-   ```bash
-   uv sync --group dev
-   ```
-2. Run tests:
-   ```bash
-   uv run pytest -q
-   ```
-3. Construct contract models in Python:
-   ```python
-   from nl_runtime_primitives import DockerRuntimeRequest, TraceEventRequest
+```python
+from nl_runtime_primitives import (
+    DockerMount,
+    DockerRuntimeRequest,
+    DockerRuntimeResult,
+    PromptFetchRequest,
+    PromptPayload,
+    TraceEventRequest,
+    TraceAck,
+    RuntimeAdapter,
+    PromptProvider,
+    TraceEmitter,
+    ErrorCode,
+    ErrorEnvelope,
+    RuntimePrimitiveError,
+    LangfuseConfig,
+    LangfusePromptProvider,
+    LangfuseTraceEmitter,
+    CONTRACT_VERSION,
+)
+```
 
-   docker_req = DockerRuntimeRequest.model_validate({
-       "image": "python:3.12-slim",
-       "command": ["python", "-c", "print('ok')"],
-       "timeout_seconds": 10,
-   })
+## Versioning
 
-   langfuse_trace = TraceEventRequest.model_validate({
-       "event_name": "runtime-primitive-test",
-       "session_id": "session-123",
-   })
+- `CONTRACT_VERSION` is the compatibility gate for downstream consumers.
+- Contract-breaking changes must bump `CONTRACT_VERSION`.
 
-   print(docker_req.model_dump())
-   print(langfuse_trace.model_dump())
-   ```
-4. Consume exported contracts from downstream runtimes.
+## Development
 
-## Current status
-
-- Contract models are available for prompt providers, trace emission, and
-  runtime execution request/response envelopes.
-- A strict protocol adapter layer is available for downstream wiring.
-- `nl_latents` consumes these contracts through its bridge layer; loop logic
-  still lives entirely in `nl_latents`.
-
-Orchestration remains out of scope in this repository by design.
+```bash
+uv sync --group dev
+uv run pytest -q
+uv run ruff check
+```
