@@ -436,7 +436,8 @@ def test_prompt_provider_reports_unknown_compile_variables() -> None:
             )
         )
 
-    assert exc_info.value.error.code == ErrorCode.INTERNAL_ERROR
+    assert exc_info.value.error.code == ErrorCode.MALFORMED_REQUEST
+    assert exc_info.value.error.details.get("reason") == "unknown_compile_variables"
 
 
 def test_prompt_provider_wraps_invalid_payload_shape_in_runtime_error() -> None:
@@ -457,10 +458,11 @@ def test_prompt_provider_wraps_invalid_payload_shape_in_runtime_error() -> None:
     with pytest.raises(RuntimePrimitiveError) as exc_info:
         provider.fetch_prompt(PromptFetchRequest(prompt_name="x"))
 
-    assert exc_info.value.error.code == ErrorCode.INTERNAL_ERROR
+    assert exc_info.value.error.code == ErrorCode.MALFORMED_REQUEST
+    assert exc_info.value.error.details.get("reason") == "missing_compile_method"
 
 
-def test_prompt_provider_does_not_mask_internal_compile_type_error() -> None:
+def test_prompt_provider_maps_compile_type_error_to_malformed_request() -> None:
     class _BadCompilePrompt:
         labels = ["prod"]
         version = 1
@@ -485,7 +487,8 @@ def test_prompt_provider_does_not_mask_internal_compile_type_error() -> None:
             PromptFetchRequest(prompt_name="summarize", variables={"topic": "incident"})
         )
 
-    assert exc_info.value.error.code == ErrorCode.INTERNAL_ERROR
+    assert exc_info.value.error.code == ErrorCode.MALFORMED_REQUEST
+    assert exc_info.value.error.details.get("reason") == "compile_invocation_type_error"
 
 
 def test_prompt_provider_fails_fast_when_task_content_missing() -> None:
@@ -581,7 +584,8 @@ def test_prompt_provider_rejects_compile_without_kwargs_support() -> None:
             PromptFetchRequest(prompt_name="x", variables={"topic": "ignored"})
         )
 
-    assert exc_info.value.error.code == ErrorCode.INTERNAL_ERROR
+    assert exc_info.value.error.code == ErrorCode.MALFORMED_REQUEST
+    assert exc_info.value.error.details.get("reason") == "unknown_compile_variables"
 
 
 def test_trace_emitter_does_not_misclassify_service_schema_errors() -> None:

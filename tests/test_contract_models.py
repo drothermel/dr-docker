@@ -128,6 +128,16 @@ def test_infra_error_envelope_behavior() -> None:
 
     with pytest.raises(ValidationError):
         ErrorEnvelope.model_validate({"code": "unknown", "message": "bad"})
+    with pytest.raises(ValidationError):
+        ErrorEnvelope.model_validate({"code": "timeout", "message": ""})
+    with pytest.raises(ValidationError):
+        ErrorEnvelope.model_validate(
+            {
+                "code": "timeout",
+                "message": "bad details",
+                "details": {"not_json": object()},
+            }
+        )
 
 
 def test_result_envelopes_reject_success_with_error() -> None:

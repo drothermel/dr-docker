@@ -8,7 +8,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from pydantic import BaseModel
+from pydantic import BaseModel, JsonValue
 
 from .adapters import RuntimePrimitiveError
 from .errors import ErrorCode, ErrorEnvelope
@@ -47,7 +47,7 @@ def _error(
     message: str,
     *,
     retriable: bool,
-    details: dict[str, object] | None = None,
+    details: dict[str, JsonValue] | None = None,
 ) -> ErrorEnvelope:
     return ErrorEnvelope(
         code=code,
@@ -58,7 +58,7 @@ def _error(
 
 
 def _map_exception(exc: Exception, *, operation: str) -> ErrorEnvelope:
-    details: dict[str, object] = {
+    details: dict[str, JsonValue] = {
         "operation": operation,
         "exception_type": type(exc).__name__,
     }
@@ -199,10 +199,30 @@ def _resolve_client(
         return _ClientResolution(init_error=err)
 
 
+def _malformed_request_error(
+    message: str, *, reason: str, details: dict[str, JsonValue] | None = None
+) -> ErrorEnvelope:
+    return _error(
+        ErrorCode.MALFORMED_REQUEST,
+        message,
+        retriable=False,
+        details={
+            "operation": "fetch_prompt",
+            "reason": reason,
+            **(details or {}),
+        },
+    )
+
+
 def _compile_prompt_template(prompt: Any, variables: dict[str, object]) -> Any:
     compile_fn = getattr(prompt, "compile", None)
     if not callable(compile_fn):
-        raise TypeError("Langfuse prompt does not expose a callable compile method")
+        raise RuntimePrimitiveError(
+            _malformed_request_error(
+                "Langfuse prompt does not expose a callable compile method",
+                reason="missing_compile_method",
+            )
+        )
 
     try:
         params = list(signature(compile_fn).parameters.values())
@@ -219,12 +239,24 @@ def _compile_prompt_template(prompt: Any, variables: dict[str, object]) -> Any:
         unknown = sorted(name for name in variables if name not in accepted_names)
         if unknown:
             unknown_display = ", ".join(unknown)
-            raise TypeError(
-                "Langfuse prompt.compile does not accept variables: "
-                f"{unknown_display}"
+            raise RuntimePrimitiveError(
+                _malformed_request_error(
+                    "Langfuse prompt.compile does not accept provided variables",
+                    reason="unknown_compile_variables",
+                    details={"unknown_variables": unknown_display},
+                )
             )
 
-    return compile_fn(**variables)
+    try:
+        return compile_fn(**variables)
+    except TypeError as exc:
+        raise RuntimePrimitiveError(
+            _malformed_request_error(
+                "Langfuse prompt.compile rejected the provided variables",
+                reason="compile_invocation_type_error",
+                details={"exception": str(exc)},
+            )
+        ) from exc
 
 
 def _create_event_request_kwargs(event: TraceEventRequest) -> dict[str, object]:
