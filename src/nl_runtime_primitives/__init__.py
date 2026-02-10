@@ -4,7 +4,6 @@ from .adapters import (
     PromptProvider,
     RuntimeAdapter,
     RuntimePrimitiveError,
-    RuntimePrimitivesAdapter,
     TraceEmitter,
 )
 from .docker_contract import DockerMount, DockerRuntimeRequest, DockerRuntimeResult
@@ -20,7 +19,6 @@ from .langfuse_contract import (
     TraceAck,
     TraceEventRequest,
 )
-from .stubs import StubRuntimePrimitivesAdapter
 from .version import CONTRACT_VERSION, __version__
 
 __all__ = [
@@ -38,8 +36,6 @@ __all__ = [
     "PromptProvider",
     "RuntimeAdapter",
     "RuntimePrimitiveError",
-    "RuntimePrimitivesAdapter",
-    "StubRuntimePrimitivesAdapter",
     "TraceAck",
     "TraceEmitter",
     "TraceEventRequest",
