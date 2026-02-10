@@ -1,27 +1,48 @@
-# Claude guidance for nl-runtime-primitives
+# CLAUDE.md
 
-## Repository mission
+Operational guidance for working in `nl-runtime-primitives`.
 
-This repository is the runtime integration owner for Docker and Langfuse primitives.
+## What To Optimize For
 
-## Hard boundaries
+- Preserve a small, stable public contract.
+- Prefer strict, explicit behavior over permissive fallbacks.
+- Keep changes minimal and easy to reason about.
 
-Do:
-- Define and maintain primitive-level integration contracts
-- Provide typed interfaces, validation, and minimal adapter utilities for Docker/Langfuse integration
-- Preserve backward-compatible contract evolution where practical
+## Scope Rules
 
-Do not:
-- Implement loop orchestration or runtime control flows
-- Add selector, policy, or budget-loop logic
-- Own prompt primitives, prompt block registries, or prompt composition
+Allowed:
+- Docker and Langfuse runtime primitive contracts
+- Primitive adapters and validation behavior
+- Typed error-envelope behavior
+- Tests for contract guarantees
 
-## 3-repo routing
+Not allowed:
+- Orchestration/control-loop logic
+- Scheduler/policy/selector behavior
+- Prompt-catalog or prompt-composition ownership
 
-- `nl-runtime-primitives`: Docker/Langfuse runtime integration primitives
-- `nl_latents`: Loop orchestration/runtime execution logic
-- `genprompt`: Prompt primitive and catalog contracts
+## Change Rules
 
-## Working rule
+- Do not add broad compatibility shims.
+- Do not expand the public surface without clear necessity.
+- Treat validator behavior and exported symbols as contract-critical.
+- If a change breaks downstream expectations, bump `CONTRACT_VERSION` and package version together.
 
-When a request mixes scopes, implement only the `nl-runtime-primitives` contract surface and route orchestration/prompt ownership work to the correct repo.
+## Testing Standard
+
+Before finishing work, run:
+
+```bash
+uv run pytest -q
+uv run ruff check
+uv run ty check
+```
+
+If behavior changed, tests should clearly pin the new behavior.
+
+## Practical Style
+
+- Keep errors typed and deterministic (`ErrorCode` + `ErrorEnvelope`).
+- Prefer explicit failure over silent fallback.
+- Keep prompt variables and trace metadata JSON-safe at contract boundaries.
+- Keep docs concise; avoid duplicating large architectural narratives.

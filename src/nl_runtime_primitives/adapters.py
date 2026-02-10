@@ -37,9 +37,3 @@ class TraceEmitter(Protocol):
 
     def emit_trace(self, event: TraceEventRequest) -> TraceAck: ...
 
-
-@runtime_checkable
-class RuntimePrimitivesAdapter(
-    RuntimeAdapter, PromptProvider, TraceEmitter, Protocol
-):
-    """Combined adapter surface consumed by orchestration runtimes."""

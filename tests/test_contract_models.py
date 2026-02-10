@@ -1,3 +1,6 @@
+from pathlib import Path
+import re
+
 import pytest
 from pydantic import ValidationError
 
@@ -10,7 +13,9 @@ from nl_runtime_primitives import (
     ErrorEnvelope,
     PromptFetchRequest,
     PromptPayload,
+    TraceAck,
     TraceEventRequest,
+    __version__,
 )
 
 def test_docker_request_and_result_model_validation_roundtrip() -> None:
@@ -29,6 +34,23 @@ def test_docker_request_and_result_model_validation_roundtrip() -> None:
 
     with pytest.raises(ValidationError):
         DockerRuntimeRequest.model_validate({"timeout_seconds": 10})
+    with pytest.raises(ValidationError):
+        DockerRuntimeRequest.model_validate(
+            {"image": "x", "command": ["python"], "timeout_seconds": 0}
+        )
+    with pytest.raises(ValidationError):
+        DockerRuntimeRequest.model_validate(
+            {"image": "", "command": ["python"], "timeout_seconds": 5}
+        )
+    with pytest.raises(ValidationError):
+        DockerRuntimeRequest.model_validate(
+            {
+                "image": "x",
+                "command": ["python"],
+                "timeout_seconds": 5,
+                "mounts": [{"source": "", "target": "/workspace"}],
+            }
+        )
 
     result = DockerRuntimeResult.model_validate(
         {
@@ -45,6 +67,8 @@ def test_docker_request_and_result_model_validation_roundtrip() -> None:
     )
     result_dump = result.model_dump(mode="json")
     assert DockerRuntimeResult.model_validate(result_dump).model_dump(mode="json") == result_dump
+    with pytest.raises(ValidationError):
+        DockerRuntimeResult.model_validate({"ok": True, "duration_seconds": -0.1})
 
 
 def test_langfuse_request_payload_trace_models() -> None:
@@ -79,6 +103,38 @@ def test_langfuse_request_payload_trace_models() -> None:
 
     with pytest.raises(ValidationError):
         PromptFetchRequest.model_validate({})
+    with pytest.raises(ValidationError):
+        PromptFetchRequest.model_validate({"prompt_name": ""})
+    with pytest.raises(ValidationError):
+        PromptFetchRequest.model_validate(
+            {"prompt_name": "x", "variables": {"bad": object()}}
+        )
+    with pytest.raises(ValidationError):
+        PromptFetchRequest.model_validate(
+            {"prompt_name": "x", "variables": {"bad": float("nan")}}
+        )
+    with pytest.raises(ValidationError):
+        PromptFetchRequest.model_validate(
+            {"prompt_name": "x", "variables": {"bad": float("inf")}}
+        )
+    with pytest.raises(ValidationError):
+        PromptPayload.model_validate({"prompt_name": "", "task_content": "x"})
+    with pytest.raises(ValidationError):
+        PromptPayload.model_validate({"prompt_name": "x", "system_content": None})
+    payload_without_system = PromptPayload.model_validate(
+        {"prompt_name": "x", "task_content": "run this"}
+    )
+    assert payload_without_system.system_content == ""
+    with pytest.raises(ValidationError):
+        TraceEventRequest.model_validate({"event_name": ""})
+    with pytest.raises(ValidationError):
+        TraceEventRequest.model_validate(
+            {"event_name": "x", "metadata": {"bad": object()}}
+        )
+    with pytest.raises(ValidationError):
+        TraceEventRequest.model_validate(
+            {"event_name": "x", "metadata": {"bad": float("-inf")}}
+        )
 
 
 def test_infra_error_envelope_behavior() -> None:
@@ -96,8 +152,78 @@ def test_infra_error_envelope_behavior() -> None:
 
     with pytest.raises(ValidationError):
         ErrorEnvelope.model_validate({"code": "unknown", "message": "bad"})
+    with pytest.raises(ValidationError):
+        ErrorEnvelope.model_validate({"code": "timeout", "message": ""})
+    with pytest.raises(ValidationError):
+        ErrorEnvelope.model_validate(
+            {
+                "code": "timeout",
+                "message": "bad details",
+                "details": {"not_json": object()},
+            }
+        )
+    with pytest.raises(ValidationError):
+        ErrorEnvelope.model_validate(
+            {
+                "code": "timeout",
+                "message": "bad details",
+                "details": {"not_json": float("nan")},
+            }
+        )
+
+
+def test_result_envelopes_reject_success_with_error() -> None:
+    with pytest.raises(ValidationError):
+        DockerRuntimeResult.model_validate(
+            {
+                "ok": True,
+                "error": {
+                    "code": "internal_error",
+                    "message": "should not be present on success",
+                },
+            }
+        )
+
+    with pytest.raises(ValidationError):
+        TraceAck.model_validate(
+            {
+                "accepted": True,
+                "error": {
+                    "code": "internal_error",
+                    "message": "should not be present on accepted trace",
+                },
+            }
+        )
+
+    with pytest.raises(ValidationError):
+        DockerRuntimeResult.model_validate(
+            {
+                "ok": False,
+                "exit_code": 1,
+            }
+        )
+
+    with pytest.raises(ValidationError):
+        TraceAck.model_validate(
+            {
+                "accepted": False,
+            }
+        )
 
 
 def test_contract_version_is_exposed_and_non_empty() -> None:
     assert isinstance(CONTRACT_VERSION, str)
     assert CONTRACT_VERSION.strip()
+
+
+def test_contract_version_matches_package_version() -> None:
+    assert CONTRACT_VERSION == __version__
+
+    repo_root = Path(__file__).resolve().parent.parent
+    pyproject = (repo_root / "pyproject.toml").read_text(encoding="utf-8")
+    version_match = re.search(
+        r'(?m)^version\s*=\s*"(?P<version>[^"]+)"\s*$',
+        pyproject,
+    )
+    assert version_match is not None
+    assert version_match.group("version") == __version__
