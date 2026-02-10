@@ -43,4 +43,5 @@ If behavior changed, tests should clearly pin the new behavior.
 
 - Keep errors typed and deterministic (`ErrorCode` + `ErrorEnvelope`).
 - Prefer explicit failure over silent fallback.
+- Keep prompt variables and trace metadata JSON-safe at contract boundaries.
 - Keep docs concise; avoid duplicating large architectural narratives.

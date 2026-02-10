@@ -37,6 +37,8 @@ Breaking changes require:
 - Successful envelopes must not include `error`
 - `PromptPayload.system_content` is always a string (default `""`)
 - Prompt extraction expects chat messages with exactly one `user` message
+- `PromptFetchRequest.variables` must be JSON-safe
+- `TraceEventRequest.metadata` must be JSON-safe
 - Error envelopes are typed (`ErrorCode`) with non-empty message and JSON-safe details
 
 ## Public Surface
