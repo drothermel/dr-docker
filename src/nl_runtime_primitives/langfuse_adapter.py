@@ -66,7 +66,11 @@ def _map_exception(exc: Exception, *, operation: str) -> ErrorEnvelope:
         "exception_type": type(exc).__name__,
     }
 
-    if any(token in text for token in ("401", "403", "unauthorized", "forbidden", "api key", "auth")):
+    auth_tokens = ("401", "403", "unauthorized", "forbidden", "api key", "auth ")
+    auth_phrases = (" auth", "authentication", "invalid key", "missing key")
+    if any(token in text for token in auth_tokens) or any(
+        phrase in text for phrase in auth_phrases
+    ):
         return _error(
             ErrorCode.AUTH,
             "Langfuse authentication failed",
@@ -166,18 +170,10 @@ def _compile_prompt_template(prompt: Any, variables: dict[str, object]) -> Any:
         return compile_fn(**variables)
 
     accepts_keyword_args = any(param.kind == Parameter.VAR_KEYWORD for param in params)
-    if accepts_keyword_args:
-        return compile_fn(**variables)
-
-    positional_args = [
-        param
-        for param in params
-        if param.kind in (Parameter.POSITIONAL_ONLY, Parameter.POSITIONAL_OR_KEYWORD)
-    ]
-    if not positional_args:
-        return compile_fn()
-    if len(positional_args) == 1:
-        return compile_fn(variables)
+    if not accepts_keyword_args:
+        raise TypeError(
+            "Langfuse prompt.compile must accept **kwargs for template variables"
+        )
 
     return compile_fn(**variables)
 

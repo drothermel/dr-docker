@@ -10,6 +10,7 @@ from nl_runtime_primitives import (
     ErrorEnvelope,
     PromptFetchRequest,
     PromptPayload,
+    TraceAck,
     TraceEventRequest,
 )
 
@@ -123,6 +124,30 @@ def test_infra_error_envelope_behavior() -> None:
 
     with pytest.raises(ValidationError):
         ErrorEnvelope.model_validate({"code": "unknown", "message": "bad"})
+
+
+def test_result_envelopes_reject_success_with_error() -> None:
+    with pytest.raises(ValidationError):
+        DockerRuntimeResult.model_validate(
+            {
+                "ok": True,
+                "error": {
+                    "code": "internal_error",
+                    "message": "should not be present on success",
+                },
+            }
+        )
+
+    with pytest.raises(ValidationError):
+        TraceAck.model_validate(
+            {
+                "accepted": True,
+                "error": {
+                    "code": "internal_error",
+                    "message": "should not be present on accepted trace",
+                },
+            }
+        )
 
 
 def test_contract_version_is_exposed_and_non_empty() -> None:

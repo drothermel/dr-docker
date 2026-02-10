@@ -1,6 +1,6 @@
 """Docker primitive runtime contract models."""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from .errors import ErrorEnvelope
 
@@ -34,3 +34,9 @@ class DockerRuntimeResult(BaseModel):
     duration_seconds: float | None = None
     container_id: str | None = None
     error: ErrorEnvelope | None = None
+
+    @model_validator(mode="after")
+    def _reject_success_with_error(self) -> "DockerRuntimeResult":
+        if self.ok and self.error is not None:
+            raise ValueError("error must be null when ok is true")
+        return self

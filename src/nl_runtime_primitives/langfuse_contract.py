@@ -1,6 +1,6 @@
 """Langfuse primitive integration contract models."""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from .errors import ErrorEnvelope
 
@@ -39,3 +39,9 @@ class TraceAck(BaseModel):
     accepted: bool
     trace_id: str | None = None
     error: ErrorEnvelope | None = None
+
+    @model_validator(mode="after")
+    def _reject_accepted_with_error(self) -> "TraceAck":
+        if self.accepted and self.error is not None:
+            raise ValueError("error must be null when accepted is true")
+        return self

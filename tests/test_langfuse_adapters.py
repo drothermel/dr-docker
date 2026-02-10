@@ -134,6 +134,20 @@ def test_prompt_provider_maps_auth_errors() -> None:
     assert exc_info.value.error.retriable is False
 
 
+def test_prompt_provider_does_not_misclassify_author_text_as_auth() -> None:
+    class _Client:
+        def get_prompt(self, name: str, label: str | None = None, version: int | None = None):
+            del name, label, version
+            raise RuntimeError("author field missing in response")
+
+    provider = LangfusePromptProvider(client=_Client())
+
+    with pytest.raises(RuntimePrimitiveError) as exc_info:
+        provider.fetch_prompt(PromptFetchRequest(prompt_name="x"))
+
+    assert exc_info.value.error.code == ErrorCode.INTERNAL_ERROR
+
+
 def test_trace_emitter_maps_unavailable_errors() -> None:
     class _UnavailableClient:
         def create_event(
@@ -312,7 +326,7 @@ def test_prompt_provider_allows_missing_system_content() -> None:
     assert payload.task_content == "execute task"
 
 
-def test_prompt_provider_supports_zero_arg_compile() -> None:
+def test_prompt_provider_rejects_compile_without_kwargs_support() -> None:
     class _Prompt:
         labels = ["prod"]
         version = 2
@@ -328,13 +342,12 @@ def test_prompt_provider_supports_zero_arg_compile() -> None:
             return _Prompt()
 
     provider = LangfusePromptProvider(client=_Client())
-    payload = provider.fetch_prompt(
-        PromptFetchRequest(prompt_name="x", variables={"topic": "ignored"})
-    )
+    with pytest.raises(RuntimePrimitiveError) as exc_info:
+        provider.fetch_prompt(
+            PromptFetchRequest(prompt_name="x", variables={"topic": "ignored"})
+        )
 
-    assert payload.system_content is None
-    assert payload.task_content == "task from zero arg compile"
-    assert payload.version == 2
+    assert exc_info.value.error.code == ErrorCode.INTERNAL_ERROR
 
 
 def test_trace_emitter_does_not_misclassify_service_schema_errors() -> None:
