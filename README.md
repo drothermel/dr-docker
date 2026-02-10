@@ -25,7 +25,7 @@ Disallowed in this repository:
 - Exploration/exploitation selectors or budget execution loops
 - Prompt primitive ownership, prompt block registries, or prompt composition logic
 
-## Repo Routing (3-Repo Boundary)
+## Repo Routing (4-Repo Boundary)
 
 - `nl-runtime-primitives` (this repo): Docker/Langfuse runtime integration primitives and contracts
 - `nl_latents`: Loop orchestration, runtime control, selectors, policies, and execution flows
@@ -33,8 +33,8 @@ Disallowed in this repository:
 
 ## Docs
 
-- `docs/runtime_primitives_contract.md`
-- `docs/loop_architecture_paradigm.md`
+- `CONSTRAINTS.md`
+- `../nl_latents/CONSTRAINTS.md`
 - `AGENTS.md`
 - `CLAUDE.md`
 

@@ -16,7 +16,7 @@ Do not:
 - Add selector, policy, or budget-loop logic
 - Own prompt primitives, prompt block registries, or prompt composition
 
-## 3-repo routing
+## 4-repo routing
 
 - `nl-runtime-primitives`: Docker/Langfuse runtime integration primitives
 - `nl_latents`: Loop orchestration/runtime execution logic
