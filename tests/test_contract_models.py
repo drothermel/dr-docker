@@ -105,10 +105,10 @@ def test_langfuse_request_payload_trace_models() -> None:
         PromptPayload.model_validate({"prompt_name": "", "task_content": "x"})
     with pytest.raises(ValidationError):
         PromptPayload.model_validate({"prompt_name": "x", "system_content": None})
-    nullable_system = PromptPayload.model_validate(
-        {"prompt_name": "x", "system_content": None, "task_content": "run this"}
+    payload_without_system = PromptPayload.model_validate(
+        {"prompt_name": "x", "task_content": "run this"}
     )
-    assert nullable_system.system_content is None
+    assert payload_without_system.system_content == ""
     with pytest.raises(ValidationError):
         TraceEventRequest.model_validate({"event_name": ""})
 
