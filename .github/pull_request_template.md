@@ -25,7 +25,6 @@
 - [ ] I reviewed boundary docs and kept `genprompt` vs `nl_latents` ownership clear.
 - [ ] I documented runtime contract impact (if any).
 - [ ] I documented contract versioning/migration impact (if any).
-- [ ] I validated boundary/contract docs checks locally (`.github/scripts/check_boundary_contract_docs.sh`).
 
 ## Testing
 
