@@ -10,6 +10,14 @@ from .docker_contract import DockerRuntimeRequest, DockerRuntimeResult
 from .errors import ErrorCode, ErrorEnvelope
 
 
+def _timeout_output(value: object) -> str:
+    if isinstance(value, bytes):
+        return value.decode(errors="replace")
+    if isinstance(value, str):
+        return value
+    return ""
+
+
 class LocalSubprocessRuntimeAdapter:
     """Runtime adapter that executes request commands on the local host."""
 
@@ -48,12 +56,20 @@ class LocalSubprocessRuntimeAdapter:
                     process.wait(timeout=1)
                 except subprocess.TimeoutExpired:
                     process.kill()
-                out, err = process.communicate()
-                stdout = out or ""
-                stderr = err or ""
+                try:
+                    out, err = process.communicate(timeout=1)
+                    stdout = out or ""
+                    stderr = err or ""
+                except subprocess.TimeoutExpired as final_exc:
+                    stdout = _timeout_output(final_exc.stdout) or _timeout_output(
+                        exc.stdout
+                    )
+                    stderr = _timeout_output(final_exc.stderr) or _timeout_output(
+                        exc.stderr
+                    )
             else:
-                stdout = (exc.stdout or "") if isinstance(exc.stdout, str) else ""
-                stderr = (exc.stderr or "") if isinstance(exc.stderr, str) else ""
+                stdout = _timeout_output(exc.stdout)
+                stderr = _timeout_output(exc.stderr)
             duration = time.monotonic() - start
             return DockerRuntimeResult(
                 ok=False,
@@ -92,9 +108,24 @@ class LocalSubprocessRuntimeAdapter:
             )
 
         duration = time.monotonic() - start
+        exit_code = process.returncode
+        if exit_code != 0:
+            return DockerRuntimeResult(
+                ok=False,
+                exit_code=exit_code,
+                stdout=stdout,
+                stderr=stderr,
+                duration_seconds=duration,
+                error=ErrorEnvelope(
+                    code=ErrorCode.INTERNAL_ERROR,
+                    message=f"command exited with code {exit_code}",
+                    retriable=False,
+                    details={"exit_code": exit_code},
+                ),
+            )
         return DockerRuntimeResult(
-            ok=process.returncode == 0,
-            exit_code=process.returncode,
+            ok=True,
+            exit_code=exit_code,
             stdout=stdout,
             stderr=stderr,
             duration_seconds=duration,

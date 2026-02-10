@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from inspect import Parameter, signature
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Callable
@@ -158,10 +159,25 @@ def _compile_prompt_template(prompt: Any, variables: dict[str, object]) -> Any:
     compile_fn = getattr(prompt, "compile", None)
     if not callable(compile_fn):
         return prompt
+
     try:
+        params = list(signature(compile_fn).parameters.values())
+    except (TypeError, ValueError):
         return compile_fn(**variables)
-    except TypeError:
+
+    accepts_keyword_args = any(param.kind == Parameter.VAR_KEYWORD for param in params)
+    if accepts_keyword_args:
+        return compile_fn(**variables)
+
+    positional_args = [
+        param
+        for param in params
+        if param.kind in (Parameter.POSITIONAL_ONLY, Parameter.POSITIONAL_OR_KEYWORD)
+    ]
+    if len(positional_args) == 1:
         return compile_fn(variables)
+
+    return compile_fn(**variables)
 
 
 def _extract_prompt_content(raw_prompt: Any) -> tuple[str, str]:
@@ -244,29 +260,30 @@ class LangfusePromptProvider:
             )
             compiled = _compile_prompt_template(prompt, request.variables)
             system_content, task_content = _extract_prompt_content(compiled)
+            labels = getattr(prompt, "labels", None)
+            resolved_label = request.label
+            if resolved_label is None and isinstance(labels, list) and labels:
+                first_label = labels[0]
+                if isinstance(first_label, str):
+                    resolved_label = first_label
+            if resolved_label is None:
+                prompt_label = getattr(prompt, "label", None)
+                if isinstance(prompt_label, str):
+                    resolved_label = prompt_label
+
+            return PromptPayload(
+                prompt_name=request.prompt_name,
+                system_content=system_content,
+                task_content=task_content,
+                label=resolved_label,
+                version=getattr(prompt, "version", request.version),
+            )
         except RuntimePrimitiveError:
             raise
         except Exception as exc:
-            raise RuntimePrimitiveError(_map_exception(exc, operation="fetch_prompt")) from exc
-
-        labels = getattr(prompt, "labels", None)
-        resolved_label = request.label
-        if resolved_label is None and isinstance(labels, list) and labels:
-            first_label = labels[0]
-            if isinstance(first_label, str):
-                resolved_label = first_label
-        if resolved_label is None:
-            prompt_label = getattr(prompt, "label", None)
-            if isinstance(prompt_label, str):
-                resolved_label = prompt_label
-
-        return PromptPayload(
-            prompt_name=request.prompt_name,
-            system_content=system_content,
-            task_content=task_content,
-            label=resolved_label,
-            version=getattr(prompt, "version", request.version),
-        )
+            raise RuntimePrimitiveError(
+                _map_exception(exc, operation="fetch_prompt")
+            ) from exc
 
 
 class LangfuseTraceEmitter:
