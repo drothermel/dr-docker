@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Callable
@@ -17,7 +16,6 @@ from .langfuse_contract import PromptFetchRequest, PromptPayload, TraceAck, Trac
 LANGFUSE_PUBLIC_KEY_ENV = "LANGFUSE_PUBLIC_KEY"
 LANGFUSE_SECRET_KEY_ENV = "LANGFUSE_SECRET_KEY"
 LANGFUSE_HOST_ENV = "LANGFUSE_HOST"
-_logger = logging.getLogger(__name__)
 
 
 class LangfuseConfig(BaseModel):
@@ -156,19 +154,17 @@ def _resolve_client(
         return _ClientResolution(init_error=err)
 
 
-def _render_text(template: str, variables: dict[str, object]) -> str:
-    if not variables:
-        return template
+def _compile_prompt_template(prompt: Any, variables: dict[str, object]) -> Any:
+    compile_fn = getattr(prompt, "compile", None)
+    if not callable(compile_fn):
+        return prompt
     try:
-        return template.format(**variables)
-    except Exception as exc:
-        _logger.debug(
-            "Template rendering failed, returning raw template: %s", exc
-        )
-        return template
+        return compile_fn(**variables)
+    except TypeError:
+        return compile_fn(variables)
 
 
-def _extract_prompt_content(raw_prompt: Any, variables: dict[str, object]) -> tuple[str, str]:
+def _extract_prompt_content(raw_prompt: Any) -> tuple[str, str]:
     source = raw_prompt
     if hasattr(raw_prompt, "prompt"):
         source = raw_prompt.prompt
@@ -176,7 +172,7 @@ def _extract_prompt_content(raw_prompt: Any, variables: dict[str, object]) -> tu
         source = raw_prompt["prompt"]
 
     if isinstance(source, str):
-        return "", _render_text(source, variables)
+        return "", source
 
     if isinstance(source, list):
         system_parts: list[str] = []
@@ -187,24 +183,23 @@ def _extract_prompt_content(raw_prompt: Any, variables: dict[str, object]) -> tu
             content = msg.get("content")
             if not isinstance(content, str):
                 continue
-            rendered = _render_text(content, variables)
             role = str(msg.get("role", "")).lower()
             if role == "system":
-                system_parts.append(rendered)
+                system_parts.append(content)
             else:
-                task_parts.append(rendered)
+                task_parts.append(content)
         return "\n".join(system_parts), "\n".join(task_parts)
 
     if isinstance(source, dict):
         system = source.get("system_content")
         task = source.get("task_content")
         if isinstance(system, str) and isinstance(task, str):
-            return _render_text(system, variables), _render_text(task, variables)
+            return system, task
 
     system_attr = getattr(raw_prompt, "system_content", None)
     task_attr = getattr(raw_prompt, "task_content", None)
     if isinstance(system_attr, str) and isinstance(task_attr, str):
-        return _render_text(system_attr, variables), _render_text(task_attr, variables)
+        return system_attr, task_attr
 
     raise RuntimePrimitiveError(
         _error(
@@ -247,17 +242,29 @@ class LangfusePromptProvider:
                 label=request.label,
                 version=request.version,
             )
-            system_content, task_content = _extract_prompt_content(prompt, request.variables)
+            compiled = _compile_prompt_template(prompt, request.variables)
+            system_content, task_content = _extract_prompt_content(compiled)
         except RuntimePrimitiveError:
             raise
         except Exception as exc:
             raise RuntimePrimitiveError(_map_exception(exc, operation="fetch_prompt")) from exc
 
+        labels = getattr(prompt, "labels", None)
+        resolved_label = request.label
+        if resolved_label is None and isinstance(labels, list) and labels:
+            first_label = labels[0]
+            if isinstance(first_label, str):
+                resolved_label = first_label
+        if resolved_label is None:
+            prompt_label = getattr(prompt, "label", None)
+            if isinstance(prompt_label, str):
+                resolved_label = prompt_label
+
         return PromptPayload(
             prompt_name=request.prompt_name,
             system_content=system_content,
             task_content=task_content,
-            label=getattr(prompt, "label", request.label),
+            label=resolved_label,
             version=getattr(prompt, "version", request.version),
         )
 

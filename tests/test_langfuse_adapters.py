@@ -18,8 +18,15 @@ from nl_runtime_primitives import (
 @dataclass
 class _PromptResult:
     prompt: list[dict[str, str]]
-    label: str = "prod"
+    labels: list[str] | None = None
     version: int = 7
+
+    def compile(self, **variables: object):
+        topic = str(variables.get("topic", ""))
+        return [
+            {"role": "system", "content": "You are concise."},
+            {"role": "user", "content": f"Summarize {topic}."},
+        ]
 
 
 class _FakeLangfuseClient:
@@ -32,8 +39,9 @@ class _FakeLangfuseClient:
         return _PromptResult(
             prompt=[
                 {"role": "system", "content": "You are concise."},
-                {"role": "user", "content": "Summarize {topic}."},
-            ]
+                {"role": "user", "content": "Summarize {{topic}}."},
+            ],
+            labels=["prod"],
         )
 
     def create_event(
@@ -77,6 +85,19 @@ def test_prompt_provider_success_path() -> None:
     assert payload.task_content == "Summarize the incident."
     assert payload.label == "prod"
     assert payload.version == 7
+
+
+def test_prompt_provider_uses_request_label_when_set() -> None:
+    provider = LangfusePromptProvider(client=_FakeLangfuseClient())
+    payload = provider.fetch_prompt(
+        PromptFetchRequest(
+            prompt_name="summarize",
+            label="staging",
+            variables={"topic": "the incident"},
+        )
+    )
+
+    assert payload.label == "staging"
 
 
 def test_trace_emitter_success_path() -> None:
