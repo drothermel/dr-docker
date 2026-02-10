@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import ClassVar
 
 import pytest
 
@@ -33,7 +34,7 @@ class _PromptResult:
     labels: list[str] | None = None
     version: int = 7
 
-    def compile(self, **variables: object):
+    def compile(self, **variables: object) -> list[dict[str, str]]:
         topic = str(variables.get("topic", ""))
         return [
             {"role": "system", "content": "You are concise."},
@@ -163,36 +164,62 @@ def test_trace_emitter_places_session_and_tags_in_input_payload() -> None:
     }
 
 
-def test_trace_emitter_supports_legacy_input_payload_clients() -> None:
-    class _LegacyClient:
+def test_trace_emitter_accepts_when_trace_id_lookup_fails() -> None:
+    class _Client:
         def __init__(self) -> None:
-            self.captured_input: object | None = None
+            self.create_calls = 0
 
         def create_event(
             self,
             *,
             name: str,
-            input: object | None = None,
             metadata: object | None = None,
+            input: object | None = None,
         ) -> None:
-            del name, metadata
-            self.captured_input = input
+            del name, metadata, input
+            self.create_calls += 1
 
-    client = _LegacyClient()
+        def get_current_trace_id(self) -> str:
+            raise RuntimeError("trace id unavailable")
+
+    client = _Client()
     emitter = LangfuseTraceEmitter(client=client)
-    ack = emitter.emit_trace(
-        TraceEventRequest(
-            event_name="runtime.step",
-            session_id="session-1",
-            tags=["runtime"],
-        )
-    )
+    ack = emitter.emit_trace(TraceEventRequest(event_name="runtime.step"))
 
+    assert client.create_calls == 1
     assert ack.accepted is True
-    assert client.captured_input == {
-        "session_id": "session-1",
-        "tags": ["runtime"],
-    }
+    assert ack.trace_id is None
+    assert ack.error is None
+
+
+def test_trace_emitter_accepts_when_flush_fails() -> None:
+    class _Client:
+        def __init__(self) -> None:
+            self.create_calls = 0
+            self.flush_calls = 0
+
+        def create_event(
+            self,
+            *,
+            name: str,
+            metadata: object | None = None,
+            input: object | None = None,
+        ) -> None:
+            del name, metadata, input
+            self.create_calls += 1
+
+        def flush(self) -> None:
+            self.flush_calls += 1
+            raise RuntimeError("flush failed")
+
+    client = _Client()
+    emitter = LangfuseTraceEmitter(client=client)
+    ack = emitter.emit_trace(TraceEventRequest(event_name="runtime.step"))
+
+    assert client.create_calls == 1
+    assert client.flush_calls == 1
+    assert ack.accepted is True
+    assert ack.error is None
 
 
 def test_trace_emitter_rejects_clients_without_metadata_kwarg() -> None:
@@ -359,6 +386,21 @@ def test_adapters_handle_missing_langfuse_package() -> None:
     assert ack.error.code == ErrorCode.UNAVAILABLE
 
 
+def test_client_init_missing_credentials_maps_to_auth() -> None:
+    provider = LangfusePromptProvider(config=LangfuseConfig())
+    emitter = LangfuseTraceEmitter(config=LangfuseConfig())
+
+    with pytest.raises(RuntimePrimitiveError) as exc_info:
+        provider.fetch_prompt(PromptFetchRequest(prompt_name="x"))
+
+    assert exc_info.value.error.code == ErrorCode.AUTH
+
+    ack = emitter.emit_trace(TraceEventRequest(event_name="runtime.step"))
+    assert ack.accepted is False
+    assert ack.error is not None
+    assert ack.error.code == ErrorCode.AUTH
+
+
 def test_client_init_value_error_without_auth_tokens_maps_to_malformed_request() -> None:
     def _bad_config_factory(config: LangfuseConfig):
         del config
@@ -387,7 +429,7 @@ def test_client_init_value_error_with_author_text_stays_malformed_request() -> N
 
 def test_prompt_provider_accepts_compile_with_named_kwargs_only() -> None:
     class _Prompt:
-        labels = ["prod"]
+        labels: ClassVar[list[str]] = ["prod"]
         version = 3
 
         def compile(self, *, topic: object) -> list[dict[str, str]]:
@@ -464,7 +506,7 @@ def test_prompt_provider_wraps_invalid_payload_shape_in_runtime_error() -> None:
 
 def test_prompt_provider_maps_compile_type_error_to_malformed_request() -> None:
     class _BadCompilePrompt:
-        labels = ["prod"]
+        labels: ClassVar[list[str]] = ["prod"]
         version = 1
 
         def compile(self, *args: object, **kwargs: object) -> str:
@@ -493,7 +535,7 @@ def test_prompt_provider_maps_compile_type_error_to_malformed_request() -> None:
 
 def test_prompt_provider_fails_fast_when_task_content_missing() -> None:
     class _SystemOnlyPrompt:
-        labels = ["prod"]
+        labels: ClassVar[list[str]] = ["prod"]
         version = 1
 
         def compile(self, **variables: object):
@@ -516,9 +558,64 @@ def test_prompt_provider_fails_fast_when_task_content_missing() -> None:
     assert exc_info.value.error.details.get("reason") == "invalid_user_message_count"
 
 
+def test_prompt_provider_rejects_multiple_user_messages_even_if_one_is_blank() -> None:
+    class _Prompt:
+        labels: ClassVar[list[str]] = ["prod"]
+        version = 1
+
+        def compile(self, **variables: object) -> list[dict[str, str]]:
+            del variables
+            return [
+                {"role": "user", "content": "real task"},
+                {"role": "user", "content": "   "},
+            ]
+
+    class _Client:
+        def get_prompt(
+            self, name: str, label: str | None = None, version: int | None = None
+        ) -> _Prompt:
+            del name, label, version
+            return _Prompt()
+
+    provider = LangfusePromptProvider(client=_Client())
+
+    with pytest.raises(RuntimePrimitiveError) as exc_info:
+        provider.fetch_prompt(PromptFetchRequest(prompt_name="x"))
+
+    assert exc_info.value.error.code == ErrorCode.MALFORMED_REQUEST
+    assert exc_info.value.error.details.get("reason") == "invalid_user_message_count"
+
+
+def test_prompt_provider_rejects_blank_user_message_content() -> None:
+    class _Prompt:
+        labels: ClassVar[list[str]] = ["prod"]
+        version = 1
+
+        def compile(self, **variables: object) -> list[dict[str, str]]:
+            del variables
+            return [
+                {"role": "user", "content": "   "},
+            ]
+
+    class _Client:
+        def get_prompt(
+            self, name: str, label: str | None = None, version: int | None = None
+        ) -> _Prompt:
+            del name, label, version
+            return _Prompt()
+
+    provider = LangfusePromptProvider(client=_Client())
+
+    with pytest.raises(RuntimePrimitiveError) as exc_info:
+        provider.fetch_prompt(PromptFetchRequest(prompt_name="x"))
+
+    assert exc_info.value.error.code == ErrorCode.MALFORMED_REQUEST
+    assert exc_info.value.error.details.get("reason") == "empty_user_message_content"
+
+
 def test_prompt_provider_allows_missing_system_content() -> None:
     class _TaskOnlyPrompt:
-        labels = ["prod"]
+        labels: ClassVar[list[str]] = ["prod"]
         version = 1
 
         def compile(self, **variables: object):
@@ -541,7 +638,7 @@ def test_prompt_provider_allows_missing_system_content() -> None:
 
 def test_prompt_provider_rejects_non_chat_prompt_shape() -> None:
     class _Prompt:
-        labels = ["prod"]
+        labels: ClassVar[list[str]] = ["prod"]
         version = 1
 
         def compile(self, **variables: object):
@@ -565,7 +662,7 @@ def test_prompt_provider_rejects_non_chat_prompt_shape() -> None:
 
 def test_prompt_provider_rejects_compile_without_kwargs_support() -> None:
     class _Prompt:
-        labels = ["prod"]
+        labels: ClassVar[list[str]] = ["prod"]
         version = 2
 
         def compile(self):

@@ -42,6 +42,10 @@ class _ClientResolution:
     init_error: ErrorEnvelope | None = None
 
 
+class _CredentialsMissingError(ValueError):
+    """Raised when required Langfuse credentials are unavailable."""
+
+
 def _error(
     code: ErrorCode,
     message: str,
@@ -134,7 +138,7 @@ def _is_transport_exception(exc: Exception) -> bool:
 
 def _default_langfuse_client_factory(config: LangfuseConfig) -> Any:
     if not config.public_key or not config.secret_key:
-        raise ValueError(
+        raise _CredentialsMissingError(
             "LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY are required for Langfuse adapters"
         )
 
@@ -174,28 +178,20 @@ def _resolve_client(
                 retriable=True,
                 details={"operation": "langfuse_client_init", "reason": "package_unavailable"},
             )
+        elif isinstance(exc, _CredentialsMissingError):
+            err = _error(
+                ErrorCode.AUTH,
+                "Langfuse credentials are missing or invalid",
+                retriable=False,
+                details={"operation": "langfuse_client_init"},
+            )
         elif isinstance(exc, ValueError):
-            text = str(exc).lower()
-            if any(
-                token in text
-                for token in (
-                    "langfuse_public_key",
-                    "langfuse_secret_key",
-                )
-            ):
-                err = _error(
-                    ErrorCode.AUTH,
-                    "Langfuse credentials are missing or invalid",
-                    retriable=False,
-                    details={"operation": "langfuse_client_init"},
-                )
-            else:
-                err = _error(
-                    ErrorCode.MALFORMED_REQUEST,
-                    "Langfuse client configuration is invalid",
-                    retriable=False,
-                    details={"operation": "langfuse_client_init"},
-                )
+            err = _error(
+                ErrorCode.MALFORMED_REQUEST,
+                "Langfuse client configuration is invalid",
+                retriable=False,
+                details={"operation": "langfuse_client_init"},
+            )
         return _ClientResolution(init_error=err)
 
 
@@ -315,6 +311,7 @@ def _extract_prompt_content(raw_prompt: Any) -> tuple[str, str]:
         )
 
     system_parts: list[str] = []
+    user_message_count = 0
     user_contents: list[str] = []
     for msg in raw_prompt:
         if not isinstance(msg, dict):
@@ -337,6 +334,7 @@ def _extract_prompt_content(raw_prompt: Any) -> tuple[str, str]:
                 system_parts.append(content)
             continue
         if role == "user":
+            user_message_count += 1
             if content:
                 user_contents.append(content)
             continue
@@ -349,13 +347,28 @@ def _extract_prompt_content(raw_prompt: Any) -> tuple[str, str]:
             )
         )
 
-    if len(user_contents) != 1:
+    if user_message_count != 1:
         raise RuntimePrimitiveError(
             _error(
                 ErrorCode.MALFORMED_REQUEST,
                 "Langfuse prompt must contain exactly one user message",
                 retriable=False,
-                details={"operation": "fetch_prompt", "reason": "invalid_user_message_count"},
+                details={
+                    "operation": "fetch_prompt",
+                    "reason": "invalid_user_message_count",
+                },
+            )
+        )
+    if len(user_contents) != 1:
+        raise RuntimePrimitiveError(
+            _error(
+                ErrorCode.MALFORMED_REQUEST,
+                "Langfuse prompt user message content must be non-empty",
+                retriable=False,
+                details={
+                    "operation": "fetch_prompt",
+                    "reason": "empty_user_message_content",
+                },
             )
         )
     return "\n\n".join(system_parts), user_contents[0]
@@ -446,17 +459,28 @@ class LangfuseTraceEmitter:
         assert client is not None
 
         try:
-            trace_id: str | None = None
             client.create_event(**_create_event_request_kwargs(event))
-            get_trace_id = getattr(client, "get_current_trace_id", None)
-            if callable(get_trace_id):
-                trace_id = get_trace_id()
-            flush = getattr(client, "flush", None)
-            if callable(flush):
-                flush()
-            return TraceAck(accepted=True, trace_id=trace_id)
         except Exception as exc:
             return TraceAck(
                 accepted=False,
                 error=_map_exception(exc, operation="emit_trace"),
             )
+
+        trace_id: str | None = None
+        get_trace_id = getattr(client, "get_current_trace_id", None)
+        if callable(get_trace_id):
+            try:
+                maybe_trace_id = get_trace_id()
+                if isinstance(maybe_trace_id, str):
+                    trace_id = maybe_trace_id
+            except Exception:
+                pass
+
+        flush = getattr(client, "flush", None)
+        if callable(flush):
+            try:
+                flush()
+            except Exception:
+                pass
+
+        return TraceAck(accepted=True, trace_id=trace_id)
