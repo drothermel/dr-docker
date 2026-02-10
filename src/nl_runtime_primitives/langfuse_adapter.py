@@ -68,7 +68,7 @@ def _map_exception(exc: Exception, *, operation: str) -> ErrorEnvelope:
             ErrorCode.AUTH,
             "Langfuse authentication failed",
             retriable=False,
-            details=details,
+            details={**details, "status_code": status_code},
         )
     if status_code in (400, 404, 409, 410, 422):
         return _error(
@@ -84,7 +84,7 @@ def _map_exception(exc: Exception, *, operation: str) -> ErrorEnvelope:
             retriable=True,
             details={**details, "status_code": status_code},
         )
-    if isinstance(exc, (ConnectionError, TimeoutError)):
+    if _is_transport_exception(exc):
         return _error(
             ErrorCode.UNAVAILABLE,
             "Langfuse is unavailable",
@@ -109,6 +109,27 @@ def _extract_status_code(exc: Exception) -> int | None:
     if isinstance(response_code, int):
         return response_code
     return None
+
+
+def _is_transport_exception(exc: Exception) -> bool:
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, (ConnectionError, TimeoutError)):
+            return True
+        request = getattr(current, "request", None)
+        name = type(current).__name__.lower()
+        if request is not None and any(
+            token in name for token in ("timeout", "connect", "network")
+        ):
+            return True
+        current = (
+            current.__cause__
+            if current.__cause__ is not None
+            else current.__context__
+        )
+    return False
 
 
 def _default_langfuse_client_factory(config: LangfuseConfig) -> Any:

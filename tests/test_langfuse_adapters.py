@@ -21,6 +21,12 @@ class _ApiErrorLike(RuntimeError):
         self.status_code = status_code
 
 
+class _ConnectErrorLike(RuntimeError):
+    def __init__(self, message: str = "transport failure") -> None:
+        super().__init__(message)
+        self.request = object()
+
+
 @dataclass
 class _PromptResult:
     prompt: list[dict[str, str]]
@@ -234,6 +240,7 @@ def test_prompt_provider_maps_auth_errors() -> None:
 
     assert exc_info.value.error.code == ErrorCode.AUTH
     assert exc_info.value.error.retriable is False
+    assert exc_info.value.error.details.get("status_code") == 401
 
 
 def test_prompt_provider_does_not_misclassify_author_text_as_auth() -> None:
@@ -261,6 +268,27 @@ def test_trace_emitter_maps_unavailable_errors() -> None:
         ):
             del name, input, metadata
             raise _ApiErrorLike(503)
+
+    emitter = LangfuseTraceEmitter(client=_UnavailableClient())
+    ack = emitter.emit_trace(TraceEventRequest(event_name="runtime.step"))
+
+    assert ack.accepted is False
+    assert ack.error is not None
+    assert ack.error.code == ErrorCode.UNAVAILABLE
+    assert ack.error.retriable is True
+
+
+def test_trace_emitter_maps_transport_errors_to_unavailable() -> None:
+    class _UnavailableClient:
+        def create_event(
+            self,
+            *,
+            name: str,
+            input: object | None = None,
+            metadata: object | None = None,
+        ):
+            del name, input, metadata
+            raise _ConnectErrorLike()
 
     emitter = LangfuseTraceEmitter(client=_UnavailableClient())
     ack = emitter.emit_trace(TraceEventRequest(event_name="runtime.step"))
