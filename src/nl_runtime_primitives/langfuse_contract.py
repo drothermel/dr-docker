@@ -1,7 +1,8 @@
 """Langfuse primitive integration contract models."""
 
-from pydantic import BaseModel, Field, JsonValue, model_validator
+from pydantic import BaseModel, Field, JsonValue, field_validator, model_validator
 
+from ._json_validation import ensure_finite_json_value
 from .errors import ErrorEnvelope
 
 
@@ -12,6 +13,15 @@ class PromptFetchRequest(BaseModel):
     label: str | None = None
     version: int | None = None
     variables: dict[str, JsonValue] = Field(default_factory=dict)
+
+    @field_validator("variables")
+    @classmethod
+    def _ensure_json_safe_variables(
+        cls, variables: dict[str, JsonValue]
+    ) -> dict[str, JsonValue]:
+        for key, value in variables.items():
+            ensure_finite_json_value(value, path=f"variables.{key}")
+        return variables
 
 
 class PromptPayload(BaseModel):
@@ -31,6 +41,15 @@ class TraceEventRequest(BaseModel):
     session_id: str | None = None
     tags: list[str] = Field(default_factory=list)
     metadata: dict[str, JsonValue] = Field(default_factory=dict)
+
+    @field_validator("metadata")
+    @classmethod
+    def _ensure_json_safe_metadata(
+        cls, metadata: dict[str, JsonValue]
+    ) -> dict[str, JsonValue]:
+        for key, value in metadata.items():
+            ensure_finite_json_value(value, path=f"metadata.{key}")
+        return metadata
 
 
 class TraceAck(BaseModel):

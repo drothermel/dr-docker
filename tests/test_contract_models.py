@@ -1,3 +1,6 @@
+from pathlib import Path
+import re
+
 import pytest
 from pydantic import ValidationError
 
@@ -12,6 +15,7 @@ from nl_runtime_primitives import (
     PromptPayload,
     TraceAck,
     TraceEventRequest,
+    __version__,
 )
 
 def test_docker_request_and_result_model_validation_roundtrip() -> None:
@@ -106,6 +110,14 @@ def test_langfuse_request_payload_trace_models() -> None:
             {"prompt_name": "x", "variables": {"bad": object()}}
         )
     with pytest.raises(ValidationError):
+        PromptFetchRequest.model_validate(
+            {"prompt_name": "x", "variables": {"bad": float("nan")}}
+        )
+    with pytest.raises(ValidationError):
+        PromptFetchRequest.model_validate(
+            {"prompt_name": "x", "variables": {"bad": float("inf")}}
+        )
+    with pytest.raises(ValidationError):
         PromptPayload.model_validate({"prompt_name": "", "task_content": "x"})
     with pytest.raises(ValidationError):
         PromptPayload.model_validate({"prompt_name": "x", "system_content": None})
@@ -118,6 +130,10 @@ def test_langfuse_request_payload_trace_models() -> None:
     with pytest.raises(ValidationError):
         TraceEventRequest.model_validate(
             {"event_name": "x", "metadata": {"bad": object()}}
+        )
+    with pytest.raises(ValidationError):
+        TraceEventRequest.model_validate(
+            {"event_name": "x", "metadata": {"bad": float("-inf")}}
         )
 
 
@@ -144,6 +160,14 @@ def test_infra_error_envelope_behavior() -> None:
                 "code": "timeout",
                 "message": "bad details",
                 "details": {"not_json": object()},
+            }
+        )
+    with pytest.raises(ValidationError):
+        ErrorEnvelope.model_validate(
+            {
+                "code": "timeout",
+                "message": "bad details",
+                "details": {"not_json": float("nan")},
             }
         )
 
@@ -190,3 +214,15 @@ def test_result_envelopes_reject_success_with_error() -> None:
 def test_contract_version_is_exposed_and_non_empty() -> None:
     assert isinstance(CONTRACT_VERSION, str)
     assert CONTRACT_VERSION.strip()
+
+
+def test_contract_version_matches_package_version() -> None:
+    assert CONTRACT_VERSION == __version__
+
+    pyproject = Path("pyproject.toml").read_text(encoding="utf-8")
+    version_match = re.search(
+        r'(?m)^version\s*=\s*"(?P<version>[^"]+)"\s*$',
+        pyproject,
+    )
+    assert version_match is not None
+    assert version_match.group("version") == __version__
