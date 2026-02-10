@@ -1,0 +1,103 @@
+import pytest
+from pydantic import ValidationError
+
+from nl_runtime_primitives import (
+    CONTRACT_VERSION,
+    DockerMount,
+    DockerRuntimeRequest,
+    DockerRuntimeResult,
+    ErrorCode,
+    ErrorEnvelope,
+    PromptFetchRequest,
+    PromptPayload,
+    TraceEventRequest,
+)
+
+def test_docker_request_and_result_model_validation_roundtrip() -> None:
+    req = DockerRuntimeRequest.model_validate(
+        {
+            "image": "python:3.12-slim",
+            "command": ["python", "-c", "print('ok')"],
+            "env": {"PYTHONUNBUFFERED": "1"},
+            "mounts": [{"source": "/tmp", "target": "/workspace", "read_only": True}],
+            "timeout_seconds": 30,
+        }
+    )
+    assert isinstance(req.mounts[0], DockerMount)
+    req_dump = req.model_dump(mode="json")
+    assert DockerRuntimeRequest.model_validate(req_dump).model_dump(mode="json") == req_dump
+
+    with pytest.raises(ValidationError):
+        DockerRuntimeRequest.model_validate({"timeout_seconds": 10})
+
+    result = DockerRuntimeResult.model_validate(
+        {
+            "ok": False,
+            "exit_code": 124,
+            "stderr": "timed out",
+            "duration_seconds": 30.0,
+            "error": {
+                "code": "timeout",
+                "message": "container execution timed out",
+                "retriable": True,
+            },
+        }
+    )
+    result_dump = result.model_dump(mode="json")
+    assert DockerRuntimeResult.model_validate(result_dump).model_dump(mode="json") == result_dump
+
+
+def test_langfuse_request_payload_trace_models() -> None:
+    fetch_req = PromptFetchRequest.model_validate(
+        {"prompt_name": "summarize", "label": "prod", "version": 1}
+    )
+    fetch_dump = fetch_req.model_dump(mode="json")
+    assert PromptFetchRequest.model_validate(fetch_dump).model_dump(mode="json") == fetch_dump
+
+    payload = PromptPayload.model_validate(
+        {
+            "prompt_name": "summarize",
+            "system_content": "You are concise.",
+            "task_content": "Summarize this text.",
+            "label": "prod",
+            "version": 1,
+        }
+    )
+    payload_dump = payload.model_dump(mode="json")
+    assert PromptPayload.model_validate(payload_dump).model_dump(mode="json") == payload_dump
+
+    trace = TraceEventRequest.model_validate(
+        {
+            "event_name": "docker.run",
+            "session_id": "session-123",
+            "tags": ["runtime", "docker"],
+            "metadata": {"attempt": 1},
+        }
+    )
+    trace_dump = trace.model_dump(mode="json")
+    assert TraceEventRequest.model_validate(trace_dump).model_dump(mode="json") == trace_dump
+
+    with pytest.raises(ValidationError):
+        PromptFetchRequest.model_validate({})
+
+
+def test_infra_error_envelope_behavior() -> None:
+    envelope = ErrorEnvelope.model_validate(
+        {
+            "code": "timeout",
+            "message": "request exceeded timeout",
+            "retriable": True,
+            "details": {"attempt": 2},
+        }
+    )
+    assert envelope.code == ErrorCode.TIMEOUT
+    envelope_dump = envelope.model_dump(mode="json")
+    assert ErrorEnvelope.model_validate(envelope_dump).model_dump(mode="json") == envelope_dump
+
+    with pytest.raises(ValidationError):
+        ErrorEnvelope.model_validate({"code": "unknown", "message": "bad"})
+
+
+def test_contract_version_is_exposed_and_non_empty() -> None:
+    assert isinstance(CONTRACT_VERSION, str)
+    assert CONTRACT_VERSION.strip()
