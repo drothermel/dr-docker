@@ -76,4 +76,6 @@ from nl_runtime_primitives import (
 uv sync --group dev
 uv run pytest -q
 uv run ruff check
+uv run ty check
+uv run pre-commit install
 ```

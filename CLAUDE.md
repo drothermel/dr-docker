@@ -35,6 +35,7 @@ Before finishing work, run:
 ```bash
 uv run pytest -q
 uv run ruff check
+uv run ty check
 ```
 
 If behavior changed, tests should clearly pin the new behavior.
