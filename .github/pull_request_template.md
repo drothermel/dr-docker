@@ -2,6 +2,22 @@
 
 <!-- What changed and why? -->
 
+## Context / Issue
+
+<!-- Link the relevant issue or background context -->
+
+## User-visible impact
+
+<!-- Describe user-visible changes (or explicitly note "none") -->
+
+## Manual test steps
+
+<!-- List manual steps taken (if any), with outcomes -->
+
+## Screenshots / GIFs (if UI changes)
+
+<!-- Provide before/after evidence for UI changes -->
+
 ## Boundary + Contract Checklist
 
 - [ ] I confirmed this PR stays within `nl-runtime-primitives` scope (runtime primitives only; no orchestration loops/policies).
@@ -13,5 +29,5 @@
 
 ## Testing
 
-- [ ] Tests pass locally.
+- [ ] Tests pass locally (include commands and results).
 - [ ] Added/updated tests where behavior changed.

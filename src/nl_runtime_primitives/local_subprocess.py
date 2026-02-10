@@ -29,23 +29,36 @@ class LocalSubprocessRuntimeAdapter:
         start = time.monotonic()
         env = os.environ.copy()
         env.update(request.env)
+        process: subprocess.Popen[str] | None = None
 
         try:
-            completed = subprocess.run(
+            process = subprocess.Popen(
                 request.command,
-                check=False,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                timeout=request.timeout_seconds,
                 cwd=request.working_dir,
                 env=env,
             )
+            stdout, stderr = process.communicate(timeout=request.timeout_seconds)
         except subprocess.TimeoutExpired as exc:
+            if process is not None:
+                process.terminate()
+                try:
+                    process.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                out, err = process.communicate()
+                stdout = out or ""
+                stderr = err or ""
+            else:
+                stdout = (exc.stdout or "") if isinstance(exc.stdout, str) else ""
+                stderr = (exc.stderr or "") if isinstance(exc.stderr, str) else ""
             duration = time.monotonic() - start
             return DockerRuntimeResult(
                 ok=False,
-                stdout=exc.stdout or "",
-                stderr=exc.stderr or "",
+                stdout=stdout,
+                stderr=stderr,
                 duration_seconds=duration,
                 error=ErrorEnvelope(
                     code=ErrorCode.TIMEOUT,
@@ -68,9 +81,9 @@ class LocalSubprocessRuntimeAdapter:
 
         duration = time.monotonic() - start
         return DockerRuntimeResult(
-            ok=completed.returncode == 0,
-            exit_code=completed.returncode,
-            stdout=completed.stdout,
-            stderr=completed.stderr,
+            ok=process.returncode == 0,
+            exit_code=process.returncode,
+            stdout=stdout,
+            stderr=stderr,
             duration_seconds=duration,
         )

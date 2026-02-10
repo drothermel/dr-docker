@@ -134,6 +134,38 @@ def test_trace_emitter_maps_unavailable_errors() -> None:
     assert ack.error.retriable is True
 
 
+def test_trace_emitter_uses_trace_fallback_when_create_event_missing() -> None:
+    class _TraceObject:
+        id = "trace_fallback_1"
+
+    class _TraceOnlyClient:
+        def __init__(self) -> None:
+            self.trace_flushed = False
+
+        def trace(
+            self,
+            *,
+            name: str,
+            session_id: str | None = None,
+            tags: list[str] | None = None,
+            metadata: dict[str, object] | None = None,
+        ) -> _TraceObject:
+            del name, session_id, tags, metadata
+            return _TraceObject()
+
+        def flush(self) -> None:
+            self.trace_flushed = True
+
+    client = _TraceOnlyClient()
+    emitter = LangfuseTraceEmitter(client=client)
+    ack = emitter.emit_trace(TraceEventRequest(event_name="runtime.step"))
+
+    assert ack.accepted is True
+    assert ack.trace_id == "trace_fallback_1"
+    assert ack.error is None
+    assert client.trace_flushed is True
+
+
 def test_trace_emitter_maps_internal_errors() -> None:
     class _InternalClient:
         def create_event(

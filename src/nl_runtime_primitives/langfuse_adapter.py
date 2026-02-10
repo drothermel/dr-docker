@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Callable
@@ -16,6 +17,7 @@ from .langfuse_contract import PromptFetchRequest, PromptPayload, TraceAck, Trac
 LANGFUSE_PUBLIC_KEY_ENV = "LANGFUSE_PUBLIC_KEY"
 LANGFUSE_SECRET_KEY_ENV = "LANGFUSE_SECRET_KEY"
 LANGFUSE_HOST_ENV = "LANGFUSE_HOST"
+_logger = logging.getLogger(__name__)
 
 
 class LangfuseConfig(BaseModel):
@@ -57,6 +59,8 @@ def _error(
 
 
 def _map_exception(exc: Exception, *, operation: str) -> ErrorEnvelope:
+    # Langfuse currently does not expose stable typed exceptions for all failure
+    # modes, so we classify by message tokens as a pragmatic compatibility layer.
     text = str(exc).lower()
     details: dict[str, object] = {
         "operation": operation,
@@ -157,7 +161,10 @@ def _render_text(template: str, variables: dict[str, object]) -> str:
         return template
     try:
         return template.format(**variables)
-    except Exception:
+    except Exception as exc:
+        _logger.debug(
+            "Template rendering failed, returning raw template: %s", exc
+        )
         return template
 
 
