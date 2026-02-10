@@ -45,7 +45,7 @@ Define the contract surface owned by `nl-runtime-primitives` for runtime integra
 
 - Contract changes must be explicit and documented.
 - Breaking changes require migration notes and coordinated version updates across dependent repos.
-- New fields should be additive and backward-compatible where possible.
+- Contracts are intentionally strict; broad compatibility shims are avoided.
 
 ## Routing rule
 
