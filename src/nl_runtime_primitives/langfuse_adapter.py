@@ -214,7 +214,7 @@ def _malformed_request_error(
     )
 
 
-def _compile_prompt_template(prompt: Any, variables: dict[str, object]) -> Any:
+def _compile_prompt_template(prompt: Any, variables: dict[str, JsonValue]) -> Any:
     compile_fn = getattr(prompt, "compile", None)
     if not callable(compile_fn):
         raise RuntimePrimitiveError(
@@ -227,7 +227,16 @@ def _compile_prompt_template(prompt: Any, variables: dict[str, object]) -> Any:
     try:
         params = list(signature(compile_fn).parameters.values())
     except (TypeError, ValueError):
-        return compile_fn(**variables)
+        try:
+            return compile_fn(**variables)
+        except TypeError as exc:
+            raise RuntimePrimitiveError(
+                _malformed_request_error(
+                    "Langfuse prompt.compile rejected the provided variables",
+                    reason="compile_invocation_type_error",
+                    details={"exception": str(exc)},
+                )
+            ) from exc
 
     accepts_keyword_args = any(param.kind == Parameter.VAR_KEYWORD for param in params)
     if not accepts_keyword_args and variables:

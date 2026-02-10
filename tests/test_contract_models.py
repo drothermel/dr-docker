@@ -102,6 +102,10 @@ def test_langfuse_request_payload_trace_models() -> None:
     with pytest.raises(ValidationError):
         PromptFetchRequest.model_validate({"prompt_name": ""})
     with pytest.raises(ValidationError):
+        PromptFetchRequest.model_validate(
+            {"prompt_name": "x", "variables": {"bad": object()}}
+        )
+    with pytest.raises(ValidationError):
         PromptPayload.model_validate({"prompt_name": "", "task_content": "x"})
     with pytest.raises(ValidationError):
         PromptPayload.model_validate({"prompt_name": "x", "system_content": None})
@@ -111,6 +115,10 @@ def test_langfuse_request_payload_trace_models() -> None:
     assert payload_without_system.system_content == ""
     with pytest.raises(ValidationError):
         TraceEventRequest.model_validate({"event_name": ""})
+    with pytest.raises(ValidationError):
+        TraceEventRequest.model_validate(
+            {"event_name": "x", "metadata": {"bad": object()}}
+        )
 
 
 def test_infra_error_envelope_behavior() -> None:

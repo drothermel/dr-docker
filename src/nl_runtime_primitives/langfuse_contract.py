@@ -1,6 +1,6 @@
 """Langfuse primitive integration contract models."""
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, JsonValue, model_validator
 
 from .errors import ErrorEnvelope
 
@@ -11,7 +11,7 @@ class PromptFetchRequest(BaseModel):
     prompt_name: str = Field(min_length=1)
     label: str | None = None
     version: int | None = None
-    variables: dict[str, object] = Field(default_factory=dict)
+    variables: dict[str, JsonValue] = Field(default_factory=dict)
 
 
 class PromptPayload(BaseModel):
@@ -30,7 +30,7 @@ class TraceEventRequest(BaseModel):
     event_name: str = Field(min_length=1)
     session_id: str | None = None
     tags: list[str] = Field(default_factory=list)
-    metadata: dict[str, object] = Field(default_factory=dict)
+    metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
 
 class TraceAck(BaseModel):
