@@ -4,19 +4,13 @@
 
 This repository is the runtime integration owner for Docker and Langfuse primitives.
 
-## Hard boundaries
+## Canonical contract
 
-Do:
-- Define and maintain primitive-level integration contracts
-- Provide typed interfaces, validation, and minimal adapter utilities for Docker/Langfuse integration
-- Preserve backward-compatible contract evolution where practical
+Canonical scope, ownership, and routing rules live in `CONSTRAINTS.md`.
 
-Do not:
-- Implement loop orchestration or runtime control flows
-- Add selector, policy, or budget-loop logic
-- Own prompt primitives, prompt block registries, or prompt composition
+In short, this repo owns runtime integration primitives and does not own orchestration or prompt composition.
 
-## 4-repo routing
+## 3-repo routing
 
 - `nl-runtime-primitives`: Docker/Langfuse runtime integration primitives
 - `nl_latents`: Loop orchestration/runtime execution logic

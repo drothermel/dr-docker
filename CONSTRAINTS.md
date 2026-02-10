@@ -1,5 +1,7 @@
 # Runtime Primitives Contract
 
+This file is the canonical scope and routing contract for `nl-runtime-primitives`.
+
 ## Purpose
 
 Define the contract surface owned by `nl-runtime-primitives` for runtime integration primitives only.
@@ -37,9 +39,16 @@ Define the contract surface owned by `nl-runtime-primitives` for runtime integra
 
 ## Cross-repo interface model
 
+- `nl-runtime-primitives` (this repo): runtime integration primitives and contracts
 - `nl_latents` consumes runtime primitives and implements orchestration/execution flows
 - `genprompt` provides prompt-side contracts consumed by orchestrated systems
 - `nl-runtime-primitives` remains orchestration-agnostic and prompt-agnostic
+
+## 3-repo routing
+
+- `nl-runtime-primitives`: Docker/Langfuse runtime integration primitives
+- `nl_latents`: loop orchestration/runtime execution logic
+- `genprompt`: prompt primitive and catalog contracts
 
 ## Versioning and change policy
 

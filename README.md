@@ -9,23 +9,9 @@ This repository owns foundational runtime integration contracts and helpers for:
 - Langfuse integration primitives
 - Adapter protocols and stubs used by loop/orchestration clients
 
-Ownership is limited to integration primitives and their contracts. This repo is not the home for loop logic or prompt primitives.
+Canonical ownership/scope/routing rules are defined in `CONSTRAINTS.md`.
 
-## Scope
-
-Allowed in this repository:
-- Typed interfaces and schemas for Docker/Langfuse runtime integration
-- Runtime integration adapters and validation utilities (primitive level)
-- Contract docs and compatibility guarantees for downstream runtimes
-- Stub and protocol implementations that allow clients to wire integrations
-  safely while concrete backends evolve
-
-Disallowed in this repository:
-- Loop orchestration, controller state machines, scheduling, or runtime policy loops
-- Exploration/exploitation selectors or budget execution loops
-- Prompt primitive ownership, prompt block registries, or prompt composition logic
-
-## Repo Routing (4-Repo Boundary)
+## Repo Routing (3-Repo Boundary)
 
 - `nl-runtime-primitives` (this repo): Docker/Langfuse runtime integration primitives and contracts
 - `nl_latents`: Loop orchestration, runtime control, selectors, policies, and execution flows
@@ -33,10 +19,9 @@ Disallowed in this repository:
 
 ## Docs
 
-- `CONSTRAINTS.md`
-- `../nl_latents/CONSTRAINTS.md`
-- `AGENTS.md`
-- `CLAUDE.md`
+- `CONSTRAINTS.md` (canonical scope + routing contract for this repo)
+- `CLAUDE.md` and `AGENTS.md` (agent operating guidance)
+- `nl_latents` repo: see its own `CONSTRAINTS.md` in that repository
 
 ## Quickstart
 
