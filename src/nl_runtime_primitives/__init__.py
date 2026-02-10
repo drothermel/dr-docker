@@ -20,7 +20,6 @@ from .langfuse_contract import (
     TraceAck,
     TraceEventRequest,
 )
-from .local_subprocess import LocalSubprocessRuntimeAdapter
 from .stubs import StubRuntimePrimitivesAdapter
 from .version import CONTRACT_VERSION, __version__
 
@@ -34,7 +33,6 @@ __all__ = [
     "LangfuseConfig",
     "LangfusePromptProvider",
     "LangfuseTraceEmitter",
-    "LocalSubprocessRuntimeAdapter",
     "PromptFetchRequest",
     "PromptPayload",
     "PromptProvider",

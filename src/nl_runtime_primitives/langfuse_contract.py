@@ -44,4 +44,6 @@ class TraceAck(BaseModel):
     def _reject_accepted_with_error(self) -> "TraceAck":
         if self.accepted and self.error is not None:
             raise ValueError("error must be null when accepted is true")
+        if not self.accepted and self.error is None:
+            raise ValueError("error must be present when accepted is false")
         return self

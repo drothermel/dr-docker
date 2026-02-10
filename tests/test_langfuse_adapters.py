@@ -119,6 +119,71 @@ def test_trace_emitter_success_path() -> None:
     assert client.trace_flushed is True
 
 
+def test_trace_emitter_prefers_top_level_session_and_tags() -> None:
+    class _TopLevelClient:
+        def __init__(self) -> None:
+            self.captured_session_id: str | None = None
+            self.captured_tags: list[str] | None = None
+
+        def create_event(
+            self,
+            *,
+            name: str,
+            metadata: object | None = None,
+            session_id: str | None = None,
+            tags: list[str] | None = None,
+        ) -> None:
+            del name, metadata
+            self.captured_session_id = session_id
+            self.captured_tags = tags
+
+    client = _TopLevelClient()
+    emitter = LangfuseTraceEmitter(client=client)
+    ack = emitter.emit_trace(
+        TraceEventRequest(
+            event_name="runtime.step",
+            session_id="session-1",
+            tags=["runtime"],
+        )
+    )
+
+    assert ack.accepted is True
+    assert client.captured_session_id == "session-1"
+    assert client.captured_tags == ["runtime"]
+
+
+def test_trace_emitter_falls_back_to_input_payload_for_legacy_clients() -> None:
+    class _LegacyClient:
+        def __init__(self) -> None:
+            self.captured_input: object | None = None
+
+        def create_event(
+            self,
+            *,
+            name: str,
+            input: object | None = None,
+            metadata: object | None = None,
+        ) -> None:
+            del name, metadata
+            self.captured_input = input
+
+    client = _LegacyClient()
+    emitter = LangfuseTraceEmitter(client=client)
+    ack = emitter.emit_trace(
+        TraceEventRequest(
+            event_name="runtime.step",
+            session_id="session-1",
+            tags=["runtime"],
+        )
+    )
+
+    assert ack.accepted is True
+    assert client.captured_input == {
+        "session_id": "session-1",
+        "tags": ["runtime"],
+    }
+
+
 def test_prompt_provider_maps_auth_errors() -> None:
     class _AuthFailClient:
         def get_prompt(self, name: str, label: str | None = None, version: int | None = None):
@@ -227,6 +292,73 @@ def test_adapters_handle_missing_langfuse_package() -> None:
     assert ack.accepted is False
     assert ack.error is not None
     assert ack.error.code == ErrorCode.UNAVAILABLE
+
+
+def test_client_init_value_error_without_auth_tokens_maps_to_malformed_request() -> None:
+    def _bad_config_factory(config: LangfuseConfig):
+        del config
+        raise ValueError("invalid host url")
+
+    provider = LangfusePromptProvider(client_factory=_bad_config_factory)
+
+    with pytest.raises(RuntimePrimitiveError) as exc_info:
+        provider.fetch_prompt(PromptFetchRequest(prompt_name="x"))
+
+    assert exc_info.value.error.code == ErrorCode.MALFORMED_REQUEST
+
+
+def test_prompt_provider_accepts_compile_with_named_kwargs_only() -> None:
+    class _Prompt:
+        labels = ["prod"]
+        version = 3
+
+        def compile(self, *, topic: object) -> list[dict[str, str]]:
+            return [
+                {"role": "user", "content": f"Summarize {topic}."},
+            ]
+
+    class _Client:
+        def get_prompt(
+            self, name: str, label: str | None = None, version: int | None = None
+        ) -> _Prompt:
+            del name, label, version
+            return _Prompt()
+
+    provider = LangfusePromptProvider(client=_Client())
+    payload = provider.fetch_prompt(
+        PromptFetchRequest(prompt_name="summarize", variables={"topic": "incident"})
+    )
+
+    assert payload.task_content == "Summarize incident."
+    assert payload.version == 3
+
+
+def test_prompt_provider_reports_unknown_compile_variables() -> None:
+    class _Prompt:
+        version = 1
+
+        def compile(self, *, topic: object) -> list[dict[str, str]]:
+            return [
+                {"role": "user", "content": f"Summarize {topic}."},
+            ]
+
+    class _Client:
+        def get_prompt(
+            self, name: str, label: str | None = None, version: int | None = None
+        ) -> _Prompt:
+            del name, label, version
+            return _Prompt()
+
+    provider = LangfusePromptProvider(client=_Client())
+    with pytest.raises(RuntimePrimitiveError) as exc_info:
+        provider.fetch_prompt(
+            PromptFetchRequest(
+                prompt_name="summarize",
+                variables={"topic": "incident", "extra": "x"},
+            )
+        )
+
+    assert exc_info.value.error.code == ErrorCode.INTERNAL_ERROR
 
 
 def test_prompt_provider_wraps_invalid_payload_shape_in_runtime_error() -> None:

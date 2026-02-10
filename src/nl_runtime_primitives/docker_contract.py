@@ -39,4 +39,6 @@ class DockerRuntimeResult(BaseModel):
     def _reject_success_with_error(self) -> "DockerRuntimeResult":
         if self.ok and self.error is not None:
             raise ValueError("error must be null when ok is true")
+        if not self.ok and self.error is None:
+            raise ValueError("error must be present when ok is false")
         return self

@@ -149,6 +149,21 @@ def test_result_envelopes_reject_success_with_error() -> None:
             }
         )
 
+    with pytest.raises(ValidationError):
+        DockerRuntimeResult.model_validate(
+            {
+                "ok": False,
+                "exit_code": 1,
+            }
+        )
+
+    with pytest.raises(ValidationError):
+        TraceAck.model_validate(
+            {
+                "accepted": False,
+            }
+        )
+
 
 def test_contract_version_is_exposed_and_non_empty() -> None:
     assert isinstance(CONTRACT_VERSION, str)
