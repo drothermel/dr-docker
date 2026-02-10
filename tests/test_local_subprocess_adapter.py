@@ -66,3 +66,20 @@ def test_local_subprocess_passes_env_vars() -> None:
 
     assert result.ok is True
     assert result.stdout.strip() == "bar"
+
+
+def test_local_subprocess_reports_malformed_command() -> None:
+    adapter = LocalSubprocessRuntimeAdapter()
+    result = adapter.execute_in_runtime(
+        DockerRuntimeRequest(
+            image="python:3.12-slim",
+            command=[sys.executable, "\x00"],
+            timeout_seconds=5,
+        )
+    )
+
+    assert result.ok is False
+    assert result.exit_code is None
+    assert result.error is not None
+    assert result.error.code == ErrorCode.MALFORMED_REQUEST
+    assert result.error.retriable is False

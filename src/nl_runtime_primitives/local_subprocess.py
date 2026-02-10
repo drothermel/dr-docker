@@ -78,6 +78,18 @@ class LocalSubprocessRuntimeAdapter:
                     retriable=False,
                 ),
             )
+        except ValueError as exc:
+            duration = time.monotonic() - start
+            return DockerRuntimeResult(
+                ok=False,
+                duration_seconds=duration,
+                error=ErrorEnvelope(
+                    code=ErrorCode.MALFORMED_REQUEST,
+                    message=f"invalid subprocess request: {exc}",
+                    retriable=False,
+                    details={"field": "command"},
+                ),
+            )
 
         duration = time.monotonic() - start
         return DockerRuntimeResult(
