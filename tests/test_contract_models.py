@@ -219,7 +219,8 @@ def test_contract_version_is_exposed_and_non_empty() -> None:
 def test_contract_version_matches_package_version() -> None:
     assert CONTRACT_VERSION == __version__
 
-    pyproject = Path("pyproject.toml").read_text(encoding="utf-8")
+    repo_root = Path(__file__).resolve().parent.parent
+    pyproject = (repo_root / "pyproject.toml").read_text(encoding="utf-8")
     version_match = re.search(
         r'(?m)^version\s*=\s*"(?P<version>[^"]+)"\s*$',
         pyproject,
