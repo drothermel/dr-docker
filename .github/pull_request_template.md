@@ -22,7 +22,7 @@
 
 - [ ] I confirmed this PR stays within `nl-runtime-primitives` scope (runtime primitives only; no orchestration loops/policies).
 - [ ] If runtime orchestration/loop logic was needed, I routed it to `nl_latents`.
-- [ ] I reviewed boundary docs and kept `genprompt` vs `nl_latents` ownership clear.
+- [ ] I reviewed boundary guidance in `README.md` and `CLAUDE.md` and kept ownership clear.
 - [ ] I documented runtime contract impact (if any).
 - [ ] I documented contract versioning/migration impact (if any).
 
