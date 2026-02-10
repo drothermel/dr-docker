@@ -85,7 +85,7 @@ def _map_exception(exc: Exception, *, operation: str) -> ErrorEnvelope:
             "dns",
             "429",
             "rate limit",
-            "service",
+            "service unavailable",
         )
     ):
         return _error(
@@ -174,13 +174,35 @@ def _compile_prompt_template(prompt: Any, variables: dict[str, object]) -> Any:
         for param in params
         if param.kind in (Parameter.POSITIONAL_ONLY, Parameter.POSITIONAL_OR_KEYWORD)
     ]
+    if not positional_args:
+        return compile_fn()
     if len(positional_args) == 1:
         return compile_fn(variables)
 
     return compile_fn(**variables)
 
 
-def _extract_prompt_content(raw_prompt: Any) -> tuple[str, str]:
+def _normalize_text_content(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        parts: list[str] = []
+        for item in value:
+            text = _normalize_text_content(item)
+            if text:
+                parts.append(text)
+        return "\n".join(parts)
+    if isinstance(value, dict):
+        text_value = value.get("text")
+        if isinstance(text_value, str):
+            return text_value
+        content_value = value.get("content")
+        if isinstance(content_value, str):
+            return content_value
+    return ""
+
+
+def _extract_prompt_content(raw_prompt: Any) -> tuple[str | None, str]:
     source = raw_prompt
     if hasattr(raw_prompt, "prompt"):
         source = raw_prompt.prompt
@@ -188,7 +210,9 @@ def _extract_prompt_content(raw_prompt: Any) -> tuple[str, str]:
         source = raw_prompt["prompt"]
 
     if isinstance(source, str):
-        return "", source
+        task_content = source.strip()
+        if task_content:
+            return None, task_content
 
     if isinstance(source, list):
         system_parts: list[str] = []
@@ -196,33 +220,38 @@ def _extract_prompt_content(raw_prompt: Any) -> tuple[str, str]:
         for msg in source:
             if not isinstance(msg, dict):
                 continue
-            content = msg.get("content")
-            if not isinstance(content, str):
+            content = _normalize_text_content(msg.get("content"))
+            if not content:
                 continue
             role = str(msg.get("role", "")).lower()
             if role == "system":
                 system_parts.append(content)
             else:
                 task_parts.append(content)
-        return "\n".join(system_parts), "\n".join(task_parts)
+        task_content = "\n".join(task_parts).strip()
+        if task_content:
+            system_content = "\n".join(system_parts).strip() or None
+            return system_content, task_content
 
     if isinstance(source, dict):
-        system = source.get("system_content")
-        task = source.get("task_content")
-        if isinstance(system, str) and isinstance(task, str):
+        system = _normalize_text_content(source.get("system_content")).strip() or None
+        task = _normalize_text_content(source.get("task_content")).strip()
+        if task:
             return system, task
 
     system_attr = getattr(raw_prompt, "system_content", None)
     task_attr = getattr(raw_prompt, "task_content", None)
-    if isinstance(system_attr, str) and isinstance(task_attr, str):
-        return system_attr, task_attr
+    system = _normalize_text_content(system_attr).strip() or None
+    task = _normalize_text_content(task_attr).strip()
+    if task:
+        return system, task
 
     raise RuntimePrimitiveError(
         _error(
             ErrorCode.INTERNAL_ERROR,
-            "Langfuse prompt shape is unsupported",
+            "Langfuse prompt is missing required task_content",
             retriable=False,
-            details={"operation": "fetch_prompt"},
+            details={"operation": "fetch_prompt", "reason": "missing_task_content"},
         )
     )
 

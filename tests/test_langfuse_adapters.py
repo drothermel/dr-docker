@@ -262,3 +262,96 @@ def test_prompt_provider_does_not_mask_internal_compile_type_error() -> None:
         )
 
     assert exc_info.value.error.code == ErrorCode.INTERNAL_ERROR
+
+
+def test_prompt_provider_fails_fast_when_task_content_missing() -> None:
+    class _SystemOnlyPrompt:
+        labels = ["prod"]
+        version = 1
+
+        def compile(self, **variables: object):
+            del variables
+            return [{"role": "system", "content": "system only"}]
+
+    class _Client:
+        def get_prompt(
+            self, name: str, label: str | None = None, version: int | None = None
+        ) -> _SystemOnlyPrompt:
+            del name, label, version
+            return _SystemOnlyPrompt()
+
+    provider = LangfusePromptProvider(client=_Client())
+
+    with pytest.raises(RuntimePrimitiveError) as exc_info:
+        provider.fetch_prompt(PromptFetchRequest(prompt_name="x"))
+
+    assert exc_info.value.error.code == ErrorCode.INTERNAL_ERROR
+    assert exc_info.value.error.details.get("reason") == "missing_task_content"
+
+
+def test_prompt_provider_allows_missing_system_content() -> None:
+    class _TaskOnlyPrompt:
+        labels = ["prod"]
+        version = 1
+
+        def compile(self, **variables: object):
+            del variables
+            return [{"role": "user", "content": "execute task"}]
+
+    class _Client:
+        def get_prompt(
+            self, name: str, label: str | None = None, version: int | None = None
+        ) -> _TaskOnlyPrompt:
+            del name, label, version
+            return _TaskOnlyPrompt()
+
+    provider = LangfusePromptProvider(client=_Client())
+    payload = provider.fetch_prompt(PromptFetchRequest(prompt_name="x"))
+
+    assert payload.system_content is None
+    assert payload.task_content == "execute task"
+
+
+def test_prompt_provider_supports_zero_arg_compile() -> None:
+    class _Prompt:
+        labels = ["prod"]
+        version = 2
+
+        def compile(self):
+            return [{"role": "user", "content": "task from zero arg compile"}]
+
+    class _Client:
+        def get_prompt(
+            self, name: str, label: str | None = None, version: int | None = None
+        ) -> _Prompt:
+            del name, label, version
+            return _Prompt()
+
+    provider = LangfusePromptProvider(client=_Client())
+    payload = provider.fetch_prompt(
+        PromptFetchRequest(prompt_name="x", variables={"topic": "ignored"})
+    )
+
+    assert payload.system_content is None
+    assert payload.task_content == "task from zero arg compile"
+    assert payload.version == 2
+
+
+def test_trace_emitter_does_not_misclassify_service_schema_errors() -> None:
+    class _Client:
+        def create_event(
+            self,
+            *,
+            name: str,
+            input: object | None = None,
+            metadata: object | None = None,
+        ):
+            del name, input, metadata
+            raise RuntimeError("service response schema mismatch")
+
+    emitter = LangfuseTraceEmitter(client=_Client())
+    ack = emitter.emit_trace(TraceEventRequest(event_name="runtime.step"))
+
+    assert ack.accepted is False
+    assert ack.error is not None
+    assert ack.error.code == ErrorCode.INTERNAL_ERROR

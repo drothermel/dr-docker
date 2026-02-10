@@ -18,8 +18,8 @@ class PromptPayload(BaseModel):
     """Resolved prompt payload returned by Langfuse."""
 
     prompt_name: str
-    system_content: str
-    task_content: str
+    system_content: str | None = None
+    task_content: str = Field(min_length=1)
     label: str | None = None
     version: int | None = None
 
