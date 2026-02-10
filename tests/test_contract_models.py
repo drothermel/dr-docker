@@ -29,6 +29,23 @@ def test_docker_request_and_result_model_validation_roundtrip() -> None:
 
     with pytest.raises(ValidationError):
         DockerRuntimeRequest.model_validate({"timeout_seconds": 10})
+    with pytest.raises(ValidationError):
+        DockerRuntimeRequest.model_validate(
+            {"image": "x", "command": ["python"], "timeout_seconds": 0}
+        )
+    with pytest.raises(ValidationError):
+        DockerRuntimeRequest.model_validate(
+            {"image": "", "command": ["python"], "timeout_seconds": 5}
+        )
+    with pytest.raises(ValidationError):
+        DockerRuntimeRequest.model_validate(
+            {
+                "image": "x",
+                "command": ["python"],
+                "timeout_seconds": 5,
+                "mounts": [{"source": "", "target": "/workspace"}],
+            }
+        )
 
     result = DockerRuntimeResult.model_validate(
         {
@@ -79,6 +96,10 @@ def test_langfuse_request_payload_trace_models() -> None:
 
     with pytest.raises(ValidationError):
         PromptFetchRequest.model_validate({})
+    with pytest.raises(ValidationError):
+        PromptFetchRequest.model_validate({"prompt_name": ""})
+    with pytest.raises(ValidationError):
+        TraceEventRequest.model_validate({"event_name": ""})
 
 
 def test_infra_error_envelope_behavior() -> None:

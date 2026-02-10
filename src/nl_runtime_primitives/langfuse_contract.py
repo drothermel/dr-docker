@@ -8,7 +8,7 @@ from .errors import ErrorEnvelope
 class PromptFetchRequest(BaseModel):
     """Request contract for fetching a prompt from Langfuse."""
 
-    prompt_name: str
+    prompt_name: str = Field(min_length=1)
     label: str | None = None
     version: int | None = None
     variables: dict[str, object] = Field(default_factory=dict)
@@ -27,7 +27,7 @@ class PromptPayload(BaseModel):
 class TraceEventRequest(BaseModel):
     """Request contract for creating or updating a trace event."""
 
-    event_name: str
+    event_name: str = Field(min_length=1)
     session_id: str | None = None
     tags: list[str] = Field(default_factory=list)
     metadata: dict[str, object] = Field(default_factory=dict)

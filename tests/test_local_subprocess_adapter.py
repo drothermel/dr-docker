@@ -83,3 +83,20 @@ def test_local_subprocess_reports_malformed_command() -> None:
     assert result.error is not None
     assert result.error.code == ErrorCode.MALFORMED_REQUEST
     assert result.error.retriable is False
+
+
+def test_local_subprocess_reports_nonzero_exit_as_error() -> None:
+    adapter = LocalSubprocessRuntimeAdapter()
+    result = adapter.execute_in_runtime(
+        DockerRuntimeRequest(
+            image="python:3.12-slim",
+            command=[sys.executable, "-c", "import sys; sys.exit(7)"],
+            timeout_seconds=5,
+        )
+    )
+
+    assert result.ok is False
+    assert result.exit_code == 7
+    assert result.error is not None
+    assert result.error.code == ErrorCode.INTERNAL_ERROR
+    assert result.error.details.get("exit_code") == 7

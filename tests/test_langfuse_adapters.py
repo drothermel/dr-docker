@@ -213,3 +213,52 @@ def test_adapters_handle_missing_langfuse_package() -> None:
     assert ack.accepted is False
     assert ack.error is not None
     assert ack.error.code == ErrorCode.UNAVAILABLE
+
+
+def test_prompt_provider_wraps_invalid_payload_shape_in_runtime_error() -> None:
+    class _BadVersionClient:
+        def get_prompt(
+            self, name: str, label: str | None = None, version: int | None = None
+        ):
+            del name, label, version
+
+            class _Prompt:
+                prompt = "hello"
+                version = "v1"
+
+            return _Prompt()
+
+    provider = LangfusePromptProvider(client=_BadVersionClient())
+
+    with pytest.raises(RuntimePrimitiveError) as exc_info:
+        provider.fetch_prompt(PromptFetchRequest(prompt_name="x"))
+
+    assert exc_info.value.error.code == ErrorCode.INTERNAL_ERROR
+
+
+def test_prompt_provider_does_not_mask_internal_compile_type_error() -> None:
+    class _BadCompilePrompt:
+        labels = ["prod"]
+        version = 1
+
+        def compile(self, *args: object, **kwargs: object) -> str:
+            if kwargs:
+                raise TypeError("template compile failed")
+            del args
+            return "incorrect-fallback-path"
+
+    class _CompileTypeErrorClient:
+        def get_prompt(
+            self, name: str, label: str | None = None, version: int | None = None
+        ) -> _BadCompilePrompt:
+            del name, label, version
+            return _BadCompilePrompt()
+
+    provider = LangfusePromptProvider(client=_CompileTypeErrorClient())
+
+    with pytest.raises(RuntimePrimitiveError) as exc_info:
+        provider.fetch_prompt(
+            PromptFetchRequest(prompt_name="summarize", variables={"topic": "incident"})
+        )
+
+    assert exc_info.value.error.code == ErrorCode.INTERNAL_ERROR
