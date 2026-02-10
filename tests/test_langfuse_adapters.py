@@ -155,14 +155,8 @@ def test_trace_emitter_maps_unavailable_errors() -> None:
     assert ack.error.retriable is True
 
 
-def test_trace_emitter_uses_trace_fallback_when_create_event_missing() -> None:
-    class _TraceObject:
-        id = "trace_fallback_1"
-
+def test_trace_emitter_rejects_client_without_create_event() -> None:
     class _TraceOnlyClient:
-        def __init__(self) -> None:
-            self.trace_flushed = False
-
         def trace(
             self,
             *,
@@ -170,21 +164,16 @@ def test_trace_emitter_uses_trace_fallback_when_create_event_missing() -> None:
             session_id: str | None = None,
             tags: list[str] | None = None,
             metadata: dict[str, object] | None = None,
-        ) -> _TraceObject:
+        ) -> object:
             del name, session_id, tags, metadata
-            return _TraceObject()
+            return object()
 
-        def flush(self) -> None:
-            self.trace_flushed = True
-
-    client = _TraceOnlyClient()
-    emitter = LangfuseTraceEmitter(client=client)
+    emitter = LangfuseTraceEmitter(client=_TraceOnlyClient())
     ack = emitter.emit_trace(TraceEventRequest(event_name="runtime.step"))
 
-    assert ack.accepted is True
-    assert ack.trace_id == "trace_fallback_1"
-    assert ack.error is None
-    assert client.trace_flushed is True
+    assert ack.accepted is False
+    assert ack.error is not None
+    assert ack.error.code == ErrorCode.INTERNAL_ERROR
 
 
 def test_trace_emitter_maps_internal_errors() -> None:
