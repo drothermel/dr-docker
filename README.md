@@ -7,6 +7,7 @@ Runtime integration primitives for the NL stack.
 This repository owns foundational runtime integration contracts and helpers for:
 - Docker runtime primitives
 - Langfuse integration primitives
+- Adapter protocols and stubs used by loop/orchestration clients
 
 Ownership is limited to integration primitives and their contracts. This repo is not the home for loop logic or prompt primitives.
 
@@ -16,6 +17,8 @@ Allowed in this repository:
 - Typed interfaces and schemas for Docker/Langfuse runtime integration
 - Runtime integration adapters and validation utilities (primitive level)
 - Contract docs and compatibility guarantees for downstream runtimes
+- Stub and protocol implementations that allow clients to wire integrations
+  safely while concrete backends evolve
 
 Disallowed in this repository:
 - Loop orchestration, controller state machines, scheduling, or runtime policy loops
@@ -65,6 +68,13 @@ Disallowed in this repository:
    ```
 4. Consume exported contracts from downstream runtimes.
 
-This repo is currently a schema-only first slice for runtime integration primitives; orchestration remains out of scope.
-It now also includes a protocol/stub adapter layer for wiring consumers in
-`nl_latents` before concrete runtime implementations are added.
+## Current status
+
+- Contract models are available for prompt providers, trace emission, and
+  runtime execution request/response envelopes.
+- A protocol/stub adapter layer is available for downstream wiring and
+  deterministic tests.
+- `nl_latents` consumes these contracts through its bridge layer; loop logic
+  still lives entirely in `nl_latents`.
+
+Orchestration remains out of scope in this repository by design.
