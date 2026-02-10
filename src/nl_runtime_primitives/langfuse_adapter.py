@@ -159,7 +159,8 @@ def _resolve_client(
                     "missing key",
                     "invalid key",
                     "api key",
-                    "auth",
+                    " auth",
+                    "authentication",
                     "unauthorized",
                     "forbidden",
                 )
@@ -208,52 +209,19 @@ def _compile_prompt_template(prompt: Any, variables: dict[str, object]) -> Any:
     return compile_fn(**variables)
 
 
-def _is_unexpected_kwarg_error(exc: TypeError, *, arg_name: str) -> bool:
-    text = str(exc)
-    return (
-        "unexpected keyword argument" in text
-        and f"'{arg_name}'" in text
-    )
+def _create_event_request_kwargs(event: TraceEventRequest) -> dict[str, object]:
+    kwargs: dict[str, object] = {"name": event.event_name}
+    if event.metadata:
+        kwargs["metadata"] = event.metadata
 
-
-def _create_event_with_compat(
-    client: Any, event: TraceEventRequest
-) -> None:
-    create_event_kwargs: dict[str, object] = {
-        "name": event.event_name,
-        "metadata": event.metadata,
-    }
-    if event.tags:
-        create_event_kwargs["tags"] = event.tags
-    if event.session_id is not None:
-        create_event_kwargs["session_id"] = event.session_id
-
-    try:
-        client.create_event(**create_event_kwargs)
-        return
-    except TypeError as exc:
-        unsupported_tags = event.tags and _is_unexpected_kwarg_error(
-            exc, arg_name="tags"
-        )
-        unsupported_session_id = (
-            event.session_id is not None
-            and _is_unexpected_kwarg_error(exc, arg_name="session_id")
-        )
-        if not (unsupported_tags or unsupported_session_id):
-            raise
-
-    fallback_kwargs: dict[str, object] = {
-        "name": event.event_name,
-        "metadata": event.metadata,
-    }
     input_payload: dict[str, object] = {}
     if event.tags:
         input_payload["tags"] = event.tags
     if event.session_id is not None:
         input_payload["session_id"] = event.session_id
     if input_payload:
-        fallback_kwargs["input"] = input_payload
-    client.create_event(**fallback_kwargs)
+        kwargs["input"] = input_payload
+    return kwargs
 
 
 def _normalize_text_content(value: Any) -> str:
@@ -420,7 +388,7 @@ class LangfuseTraceEmitter:
                 raise RuntimeError(
                     "Langfuse client is missing required create_event API"
                 )
-            _create_event_with_compat(client, event)
+            client.create_event(**_create_event_request_kwargs(event))
             get_trace_id = getattr(client, "get_current_trace_id", None)
             if callable(get_trace_id):
                 trace_id = get_trace_id()

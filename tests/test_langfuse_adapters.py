@@ -119,25 +119,22 @@ def test_trace_emitter_success_path() -> None:
     assert client.trace_flushed is True
 
 
-def test_trace_emitter_prefers_top_level_session_and_tags() -> None:
-    class _TopLevelClient:
+def test_trace_emitter_places_session_and_tags_in_input_payload() -> None:
+    class _Client:
         def __init__(self) -> None:
-            self.captured_session_id: str | None = None
-            self.captured_tags: list[str] | None = None
+            self.captured_input: object | None = None
 
         def create_event(
             self,
             *,
             name: str,
             metadata: object | None = None,
-            session_id: str | None = None,
-            tags: list[str] | None = None,
+            input: object | None = None,
         ) -> None:
             del name, metadata
-            self.captured_session_id = session_id
-            self.captured_tags = tags
+            self.captured_input = input
 
-    client = _TopLevelClient()
+    client = _Client()
     emitter = LangfuseTraceEmitter(client=client)
     ack = emitter.emit_trace(
         TraceEventRequest(
@@ -148,11 +145,13 @@ def test_trace_emitter_prefers_top_level_session_and_tags() -> None:
     )
 
     assert ack.accepted is True
-    assert client.captured_session_id == "session-1"
-    assert client.captured_tags == ["runtime"]
+    assert client.captured_input == {
+        "session_id": "session-1",
+        "tags": ["runtime"],
+    }
 
 
-def test_trace_emitter_falls_back_to_input_payload_for_legacy_clients() -> None:
+def test_trace_emitter_supports_legacy_input_payload_clients() -> None:
     class _LegacyClient:
         def __init__(self) -> None:
             self.captured_input: object | None = None
@@ -182,6 +181,38 @@ def test_trace_emitter_falls_back_to_input_payload_for_legacy_clients() -> None:
         "session_id": "session-1",
         "tags": ["runtime"],
     }
+
+
+def test_trace_emitter_rejects_clients_without_metadata_kwarg() -> None:
+    class _LegacyNoMetadataClient:
+        def __init__(self) -> None:
+            self.calls = 0
+            self.captured_input: object | None = None
+
+        def create_event(
+            self,
+            *,
+            name: str,
+            input: object | None = None,
+        ) -> None:
+            del name
+            self.calls += 1
+            self.captured_input = input
+
+    client = _LegacyNoMetadataClient()
+    emitter = LangfuseTraceEmitter(client=client)
+    ack = emitter.emit_trace(
+        TraceEventRequest(
+            event_name="runtime.step",
+            session_id="session-1",
+            tags=["runtime"],
+            metadata={"attempt": 1},
+        )
+    )
+
+    assert ack.accepted is False
+    assert ack.error is not None
+    assert ack.error.code == ErrorCode.INTERNAL_ERROR
 
 
 def test_prompt_provider_maps_auth_errors() -> None:
@@ -298,6 +329,19 @@ def test_client_init_value_error_without_auth_tokens_maps_to_malformed_request()
     def _bad_config_factory(config: LangfuseConfig):
         del config
         raise ValueError("invalid host url")
+
+    provider = LangfusePromptProvider(client_factory=_bad_config_factory)
+
+    with pytest.raises(RuntimePrimitiveError) as exc_info:
+        provider.fetch_prompt(PromptFetchRequest(prompt_name="x"))
+
+    assert exc_info.value.error.code == ErrorCode.MALFORMED_REQUEST
+
+
+def test_client_init_value_error_with_author_text_stays_malformed_request() -> None:
+    def _bad_config_factory(config: LangfuseConfig):
+        del config
+        raise ValueError("author field missing")
 
     provider = LangfusePromptProvider(client_factory=_bad_config_factory)
 

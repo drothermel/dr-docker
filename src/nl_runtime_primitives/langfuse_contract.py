@@ -17,7 +17,7 @@ class PromptFetchRequest(BaseModel):
 class PromptPayload(BaseModel):
     """Resolved prompt payload returned by Langfuse."""
 
-    prompt_name: str
+    prompt_name: str = Field(min_length=1)
     system_content: str | None = None
     task_content: str = Field(min_length=1)
     label: str | None = None

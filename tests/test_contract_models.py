@@ -63,6 +63,8 @@ def test_docker_request_and_result_model_validation_roundtrip() -> None:
     )
     result_dump = result.model_dump(mode="json")
     assert DockerRuntimeResult.model_validate(result_dump).model_dump(mode="json") == result_dump
+    with pytest.raises(ValidationError):
+        DockerRuntimeResult.model_validate({"ok": True, "duration_seconds": -0.1})
 
 
 def test_langfuse_request_payload_trace_models() -> None:
@@ -99,6 +101,8 @@ def test_langfuse_request_payload_trace_models() -> None:
         PromptFetchRequest.model_validate({})
     with pytest.raises(ValidationError):
         PromptFetchRequest.model_validate({"prompt_name": ""})
+    with pytest.raises(ValidationError):
+        PromptPayload.model_validate({"prompt_name": "", "task_content": "x"})
     with pytest.raises(ValidationError):
         PromptPayload.model_validate({"prompt_name": "x", "system_content": None})
     nullable_system = PromptPayload.model_validate(

@@ -31,7 +31,7 @@ class DockerRuntimeResult(BaseModel):
     exit_code: int | None = None
     stdout: str = ""
     stderr: str = ""
-    duration_seconds: float | None = None
+    duration_seconds: float | None = Field(default=None, ge=0)
     container_id: str | None = None
     error: ErrorEnvelope | None = None
 
