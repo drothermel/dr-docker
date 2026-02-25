@@ -6,8 +6,7 @@ Frozen runtime integration contracts for the NL stack.
 
 This repo provides the minimum stable contract surface needed by `nl_latents`:
 - Docker runtime request/result contracts
-- Langfuse prompt/trace contracts
-- Adapter protocols
+- Runtime adapter protocol
 - Typed error envelopes
 
 If work does not directly strengthen these contracts, it does not belong here.
@@ -33,13 +32,9 @@ Breaking changes require:
 ## Contract Guarantees
 
 - `DockerRuntimeResult(ok=False)` requires `error`
-- `TraceAck(accepted=False)` requires `error`
-- Successful envelopes must not include `error`
-- `PromptPayload.system_content` is always a string (default `""`)
-- Prompt extraction expects chat messages with exactly one `user` message
-- `PromptFetchRequest.variables` must be JSON-safe
-- `TraceEventRequest.metadata` must be JSON-safe
+- Successful result envelopes must not include `error`
 - Error envelopes are typed (`ErrorCode`) with non-empty message and JSON-safe details
+- Supported `ErrorCode` values are `timeout`, `unavailable`, and `internal_error`
 
 ## Public Surface
 
@@ -48,22 +43,20 @@ from nl_runtime_primitives import (
     DockerMount,
     DockerRuntimeRequest,
     DockerRuntimeResult,
-    PromptFetchRequest,
-    PromptPayload,
-    TraceEventRequest,
-    TraceAck,
     RuntimeAdapter,
-    PromptProvider,
-    TraceEmitter,
     ErrorCode,
     ErrorEnvelope,
     RuntimePrimitiveError,
-    LangfuseConfig,
-    LangfusePromptProvider,
-    LangfuseTraceEmitter,
     CONTRACT_VERSION,
+    __version__,
 )
 ```
+
+## Breaking Changes in 0.3.0
+
+- Removed all vendor-specific prompt and trace primitives
+- Removed related provider/emitter adapter interfaces
+- Package scope is now Docker runtime contracts plus shared errors only
 
 ## Versioning
 

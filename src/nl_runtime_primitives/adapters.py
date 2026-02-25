@@ -1,10 +1,9 @@
-"""Adapter protocols and error type for runtime primitive consumers."""
+"""Adapter protocol and error type for runtime primitive consumers."""
 
 from typing import Protocol, runtime_checkable
 
 from .docker_contract import DockerRuntimeRequest, DockerRuntimeResult
 from .errors import ErrorEnvelope
-from .langfuse_contract import PromptFetchRequest, PromptPayload, TraceAck, TraceEventRequest
 
 
 class RuntimePrimitiveError(Exception):
@@ -22,18 +21,3 @@ class RuntimeAdapter(Protocol):
     def execute_in_runtime(
         self, request: DockerRuntimeRequest
     ) -> DockerRuntimeResult: ...
-
-
-@runtime_checkable
-class PromptProvider(Protocol):
-    """Primitive prompt resolver."""
-
-    def fetch_prompt(self, request: PromptFetchRequest) -> PromptPayload: ...
-
-
-@runtime_checkable
-class TraceEmitter(Protocol):
-    """Primitive trace emission adapter."""
-
-    def emit_trace(self, event: TraceEventRequest) -> TraceAck: ...
-
