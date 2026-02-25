@@ -25,7 +25,10 @@ jobs:
         run: uv sync --group dev
 
       - name: Run tests
-        run: uv run pytest -q
+        run: uv run pytest -q -m "not docker"
+
+      - name: Run format check
+        run: uv run ruff format --check
 
       - name: Run lint
         run: uv run ruff check

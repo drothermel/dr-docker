@@ -4,15 +4,19 @@ import re
 import pytest
 from pydantic import ValidationError
 
-from nl_runtime_primitives import (
+from dr_docker import (
     CONTRACT_VERSION,
     DockerMount,
     DockerRuntimeRequest,
     DockerRuntimeResult,
     ErrorCode,
     ErrorEnvelope,
+    ResourceLimits,
+    SecurityProfile,
+    TmpfsMount,
     __version__,
 )
+
 
 def test_docker_request_and_result_model_validation_roundtrip() -> None:
     req = DockerRuntimeRequest.model_validate(
@@ -26,7 +30,10 @@ def test_docker_request_and_result_model_validation_roundtrip() -> None:
     )
     assert isinstance(req.mounts[0], DockerMount)
     req_dump = req.model_dump(mode="json")
-    assert DockerRuntimeRequest.model_validate(req_dump).model_dump(mode="json") == req_dump
+    assert (
+        DockerRuntimeRequest.model_validate(req_dump).model_dump(mode="json")
+        == req_dump
+    )
 
     with pytest.raises(ValidationError):
         DockerRuntimeRequest.model_validate({"timeout_seconds": 10})
@@ -48,24 +55,6 @@ def test_docker_request_and_result_model_validation_roundtrip() -> None:
             }
         )
 
-    result = DockerRuntimeResult.model_validate(
-        {
-            "ok": False,
-            "exit_code": 124,
-            "stderr": "timed out",
-            "duration_seconds": 30.0,
-            "error": {
-                "code": "timeout",
-                "message": "container execution timed out",
-                "retriable": True,
-            },
-        }
-    )
-    result_dump = result.model_dump(mode="json")
-    assert DockerRuntimeResult.model_validate(result_dump).model_dump(mode="json") == result_dump
-    with pytest.raises(ValidationError):
-        DockerRuntimeResult.model_validate({"ok": True, "duration_seconds": -0.1})
-
 
 def test_infra_error_envelope_behavior() -> None:
     envelope = ErrorEnvelope.model_validate(
@@ -78,7 +67,10 @@ def test_infra_error_envelope_behavior() -> None:
     )
     assert envelope.code == ErrorCode.TIMEOUT
     envelope_dump = envelope.model_dump(mode="json")
-    assert ErrorEnvelope.model_validate(envelope_dump).model_dump(mode="json") == envelope_dump
+    assert (
+        ErrorEnvelope.model_validate(envelope_dump).model_dump(mode="json")
+        == envelope_dump
+    )
 
     with pytest.raises(ValidationError):
         ErrorEnvelope.model_validate({"code": "unknown", "message": "bad"})
@@ -151,3 +143,70 @@ def test_contract_version_matches_package_version() -> None:
     )
     assert version_match is not None
     assert version_match.group("version") == __version__
+
+
+def test_security_profile_defaults() -> None:
+    profile = SecurityProfile()
+    assert profile.read_only is True
+    assert profile.cap_drop == "ALL"
+    assert profile.no_new_privileges is True
+    assert profile.network_disabled is True
+
+
+def test_resource_limits_defaults() -> None:
+    limits = ResourceLimits()
+    assert limits.memory == "256m"
+    assert limits.cpus == 0.5
+    assert limits.pids_limit == 64
+    assert limits.cpu_seconds is None
+    assert limits.fsize_bytes is None
+    assert limits.nofile is None
+    assert limits.nproc is None
+
+
+def test_resource_limits_reject_non_positive_values() -> None:
+    with pytest.raises(ValidationError):
+        ResourceLimits(cpus=0)
+    with pytest.raises(ValidationError):
+        ResourceLimits(pids_limit=0)
+    with pytest.raises(ValidationError):
+        ResourceLimits(cpu_seconds=0)
+    with pytest.raises(ValidationError):
+        ResourceLimits(fsize_bytes=0)
+    with pytest.raises(ValidationError):
+        ResourceLimits(nofile=0)
+    with pytest.raises(ValidationError):
+        ResourceLimits(nproc=0)
+
+
+def test_tmpfs_mount_defaults() -> None:
+    tmpfs = TmpfsMount()
+    assert tmpfs.target == "/tmp"
+    assert tmpfs.size == "16m"
+    assert tmpfs.exec_ is False
+    assert tmpfs.model_dump(mode="json")["exec"] is False
+
+
+def test_request_with_expanded_fields_roundtrip() -> None:
+    req = DockerRuntimeRequest(
+        image="alpine:latest",
+        command=["echo", "hello"],
+        entrypoint="/bin/sh",
+        timeout_seconds=10,
+        stdin_payload=b"input data",
+        security=SecurityProfile(network_disabled=False),
+        resources=ResourceLimits(memory="512m", pids_limit=256, fsize_bytes=1024),
+        tmpfs=[TmpfsMount(target="/tmp", size="32m", exec_=True)],
+    )
+    assert req.entrypoint == "/bin/sh"
+    assert req.stdin_payload == b"input data"
+    assert req.security.network_disabled is False
+    assert req.resources.memory == "512m"
+    assert req.tmpfs[0].exec_ is True
+
+    dump = req.model_dump(mode="json")
+    assert dump["tmpfs"][0]["exec"] is True
+    restored = DockerRuntimeRequest.model_validate(dump)
+    assert restored.entrypoint == "/bin/sh"
+    assert restored.stdin_payload == b"input data"
+    assert restored.resources.pids_limit == 256

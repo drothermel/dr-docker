@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Operational guidance for working in `nl-runtime-primitives`.
+Operational guidance for working in `dr-docker`.
 
 ## What To Optimize For
 
