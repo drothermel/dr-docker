@@ -3,9 +3,9 @@ requires = ["hatchling>=1.24.2"]
 build-backend = "hatchling.build"
 
 [project]
-name = "nl-runtime-primitives"
-version = "0.3.0"
-description = "Typed runtime integration contracts for Docker primitives"
+name = "dr-docker"
+version = "0.4.0"
+description = "Docker runtime contracts and subprocess adapter"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
@@ -24,10 +24,13 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+  "docker: tests that require Docker daemon",
+]
 
 [tool.ruff]
 line-length = 88
 target-version = "py310"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/nl_runtime_primitives"]
+packages = ["src/dr_docker"]
