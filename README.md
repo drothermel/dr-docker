@@ -42,6 +42,7 @@ from dr_docker import (
 ```bash
 uv sync --group dev
 uv run pytest -q
+uv run ruff format --check
 uv run ruff check
 uv run ty check
 ```

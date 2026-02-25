@@ -169,6 +169,14 @@ def test_resource_limits_reject_non_positive_values() -> None:
         ResourceLimits(cpus=0)
     with pytest.raises(ValidationError):
         ResourceLimits(pids_limit=0)
+    with pytest.raises(ValidationError):
+        ResourceLimits(cpu_seconds=0)
+    with pytest.raises(ValidationError):
+        ResourceLimits(fsize_bytes=0)
+    with pytest.raises(ValidationError):
+        ResourceLimits(nofile=0)
+    with pytest.raises(ValidationError):
+        ResourceLimits(nproc=0)
 
 
 def test_tmpfs_mount_defaults() -> None:

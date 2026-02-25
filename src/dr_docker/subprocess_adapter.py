@@ -225,8 +225,17 @@ class SubprocessDockerAdapter:
             resources = resources.model_copy(update={"cpu_seconds": cpu_seconds})
             request = request.model_copy(update={"resources": resources})
 
-        cidfile = new_cidfile_path()
-        cmd = _build_docker_cmd(request, cidfile)
+        try:
+            cidfile = new_cidfile_path()
+            cmd = _build_docker_cmd(request, cidfile)
+        except OSError as exc:
+            return DockerRuntimeResult(
+                ok=False,
+                error=ErrorEnvelope(
+                    code=ErrorCode.UNAVAILABLE,
+                    message=f"Failed to prepare Docker runtime: {exc}",
+                ),
+            )
         start = time.monotonic()
 
         try:

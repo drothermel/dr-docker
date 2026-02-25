@@ -30,10 +30,10 @@ class ResourceLimits(BaseModel):
     memory: str = "256m"
     cpus: float = Field(default=0.5, gt=0)
     pids_limit: int = Field(default=64, gt=0)
-    cpu_seconds: int | None = None
-    fsize_bytes: int | None = None
-    nofile: int | None = None
-    nproc: int | None = None
+    cpu_seconds: int | None = Field(default=None, gt=0)
+    fsize_bytes: int | None = Field(default=None, gt=0)
+    nofile: int | None = Field(default=None, gt=0)
+    nproc: int | None = Field(default=None, gt=0)
 
 
 class TmpfsMount(BaseModel):

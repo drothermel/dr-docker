@@ -1,12 +1,15 @@
 """Container cleanup utilities for Docker subprocess execution."""
 
+import logging
 import re
 import subprocess
 from pathlib import Path
 
 from .cidfile import is_private_cidfile_dir
+from .errors import ErrorCode, ErrorEnvelope
 
 _CID_PATTERN = re.compile(r"[0-9a-f]{64}", flags=re.IGNORECASE)
+_LOGGER = logging.getLogger(__name__)
 
 
 def _is_valid_container_id(identifier: str) -> bool:
@@ -37,7 +40,17 @@ def cleanup_container_from_cidfile(cidfile: Path) -> None:
         cid = ""
     if cid and _is_valid_container_id(cid):
         _docker_rm(cid)
-    cidfile.unlink(missing_ok=True)
+    try:
+        cidfile.unlink(missing_ok=True)
+    except OSError as exc:
+        envelope = ErrorEnvelope(
+            code=ErrorCode.INTERNAL_ERROR,
+            message=f"Failed to remove cidfile {cidfile}: {exc}",
+            details={"cidfile": str(cidfile)},
+        )
+        _LOGGER.warning(
+            "best-effort cleanup failed: %s", envelope.model_dump(mode="json")
+        )
     parent_dir = cidfile.parent
     if is_private_cidfile_dir(parent_dir):
         try:

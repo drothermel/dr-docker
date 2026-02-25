@@ -75,6 +75,24 @@ def test_cleanup_container_from_cidfile_removes_container_and_private_dir(
     assert not cidfile.parent.exists()
 
 
+def test_cleanup_container_from_cidfile_ignores_unlink_oserror(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    cidfile = tmp_path / "cidfile.txt"
+    cidfile.write_text("not-a-container-id", encoding="utf-8")
+    original_unlink = Path.unlink
+
+    def _raise_unlink(self: Path, *, missing_ok: bool = False) -> None:
+        if self == cidfile:
+            raise OSError("unlink failed")
+        original_unlink(self, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "unlink", _raise_unlink)
+
+    cleanup_container_from_cidfile(cidfile)
+
+
 # -- command builder tests --
 
 
@@ -246,6 +264,30 @@ def test_adapter_returns_unavailable_when_docker_missing(
     assert result.error is not None
     assert result.error.code.value == "unavailable"
     assert "not found on PATH" in result.error.message
+
+
+def test_adapter_returns_unavailable_when_cidfile_setup_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("shutil.which", lambda _name: "/usr/bin/docker")
+
+    def _raise_cidfile() -> Path:
+        raise OSError("permission denied")
+
+    monkeypatch.setattr("dr_docker.subprocess_adapter.new_cidfile_path", _raise_cidfile)
+
+    adapter = SubprocessDockerAdapter()
+    req = DockerRuntimeRequest(
+        image="alpine:latest",
+        command=["echo", "hello"],
+        timeout_seconds=10,
+    )
+    result = adapter.execute_in_runtime(req)
+
+    assert result.ok is False
+    assert result.error is not None
+    assert result.error.code.value == "unavailable"
+    assert "Failed to prepare Docker runtime" in result.error.message
 
 
 # -- docker integration tests --
