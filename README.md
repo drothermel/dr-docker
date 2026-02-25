@@ -45,3 +45,14 @@ uv run pytest -q
 uv run ruff check
 uv run ty check
 ```
+
+## Publishing
+
+```bash
+cp .env.example .env
+# set PYPI_API_TOKEN in .env
+set -a; source .env; set +a
+uv build
+uvx twine check dist/*
+uvx twine upload -u __token__ -p "$PYPI_API_TOKEN" dist/*
+```
