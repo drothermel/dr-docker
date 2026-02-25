@@ -17,6 +17,7 @@ from dr_docker import (
 )
 from dr_docker.cidfile import is_private_cidfile_dir, new_cidfile_path
 from dr_docker.cleanup import _is_valid_container_id, cleanup_container_from_cidfile
+import dr_docker.cleanup as cleanup_module
 from dr_docker.subprocess_adapter import _build_docker_cmd
 
 
@@ -53,6 +54,25 @@ def test_cleanup_container_from_cidfile_handles_missing() -> None:
     """Cleaning up a nonexistent cidfile should not raise."""
     fake = Path(tempfile.gettempdir()) / "nonexistent_cidfile.txt"
     cleanup_container_from_cidfile(fake)
+
+
+def test_cleanup_container_from_cidfile_removes_container_and_private_dir(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cidfile = new_cidfile_path()
+    cidfile.write_text("a" * 64, encoding="utf-8")
+    called: list[str] = []
+
+    def _fake_docker_rm(identifier: str) -> None:
+        called.append(identifier)
+
+    monkeypatch.setattr(cleanup_module, "_docker_rm", _fake_docker_rm)
+
+    cleanup_container_from_cidfile(cidfile)
+
+    assert called == ["a" * 64]
+    assert not cidfile.exists()
+    assert not cidfile.parent.exists()
 
 
 # -- command builder tests --
@@ -143,12 +163,8 @@ def test_build_docker_cmd_tmpfs_without_exec() -> None:
         tmpfs=[TmpfsMount(target="/tmp", size="16m", exec=False)],
     )
     cmd = _build_docker_cmd(req, cidfile)
-    joined = " ".join(cmd)
-    assert "/tmp:rw,nosuid,size=16m" in joined
-    assert (
-        "exec" not in joined.split("/tmp:rw,nosuid,size=16m")[0].split("--tmpfs")[-1]
-        or True
-    )
+    tmpfs_idx = cmd.index("--tmpfs")
+    assert cmd[tmpfs_idx + 1] == "/tmp:rw,nosuid,size=16m"
 
 
 def test_build_docker_cmd_bind_mounts() -> None:
