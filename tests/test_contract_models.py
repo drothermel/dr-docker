@@ -11,10 +11,6 @@ from nl_runtime_primitives import (
     DockerRuntimeResult,
     ErrorCode,
     ErrorEnvelope,
-    PromptFetchRequest,
-    PromptPayload,
-    TraceAck,
-    TraceEventRequest,
     __version__,
 )
 
@@ -71,72 +67,6 @@ def test_docker_request_and_result_model_validation_roundtrip() -> None:
         DockerRuntimeResult.model_validate({"ok": True, "duration_seconds": -0.1})
 
 
-def test_langfuse_request_payload_trace_models() -> None:
-    fetch_req = PromptFetchRequest.model_validate(
-        {"prompt_name": "summarize", "label": "prod", "version": 1}
-    )
-    fetch_dump = fetch_req.model_dump(mode="json")
-    assert PromptFetchRequest.model_validate(fetch_dump).model_dump(mode="json") == fetch_dump
-
-    payload = PromptPayload.model_validate(
-        {
-            "prompt_name": "summarize",
-            "system_content": "You are concise.",
-            "task_content": "Summarize this text.",
-            "label": "prod",
-            "version": 1,
-        }
-    )
-    payload_dump = payload.model_dump(mode="json")
-    assert PromptPayload.model_validate(payload_dump).model_dump(mode="json") == payload_dump
-
-    trace = TraceEventRequest.model_validate(
-        {
-            "event_name": "docker.run",
-            "session_id": "session-123",
-            "tags": ["runtime", "docker"],
-            "metadata": {"attempt": 1},
-        }
-    )
-    trace_dump = trace.model_dump(mode="json")
-    assert TraceEventRequest.model_validate(trace_dump).model_dump(mode="json") == trace_dump
-
-    with pytest.raises(ValidationError):
-        PromptFetchRequest.model_validate({})
-    with pytest.raises(ValidationError):
-        PromptFetchRequest.model_validate({"prompt_name": ""})
-    with pytest.raises(ValidationError):
-        PromptFetchRequest.model_validate(
-            {"prompt_name": "x", "variables": {"bad": object()}}
-        )
-    with pytest.raises(ValidationError):
-        PromptFetchRequest.model_validate(
-            {"prompt_name": "x", "variables": {"bad": float("nan")}}
-        )
-    with pytest.raises(ValidationError):
-        PromptFetchRequest.model_validate(
-            {"prompt_name": "x", "variables": {"bad": float("inf")}}
-        )
-    with pytest.raises(ValidationError):
-        PromptPayload.model_validate({"prompt_name": "", "task_content": "x"})
-    with pytest.raises(ValidationError):
-        PromptPayload.model_validate({"prompt_name": "x", "system_content": None})
-    payload_without_system = PromptPayload.model_validate(
-        {"prompt_name": "x", "task_content": "run this"}
-    )
-    assert payload_without_system.system_content == ""
-    with pytest.raises(ValidationError):
-        TraceEventRequest.model_validate({"event_name": ""})
-    with pytest.raises(ValidationError):
-        TraceEventRequest.model_validate(
-            {"event_name": "x", "metadata": {"bad": object()}}
-        )
-    with pytest.raises(ValidationError):
-        TraceEventRequest.model_validate(
-            {"event_name": "x", "metadata": {"bad": float("-inf")}}
-        )
-
-
 def test_infra_error_envelope_behavior() -> None:
     envelope = ErrorEnvelope.model_validate(
         {
@@ -185,17 +115,6 @@ def test_result_envelopes_reject_success_with_error() -> None:
         )
 
     with pytest.raises(ValidationError):
-        TraceAck.model_validate(
-            {
-                "accepted": True,
-                "error": {
-                    "code": "internal_error",
-                    "message": "should not be present on accepted trace",
-                },
-            }
-        )
-
-    with pytest.raises(ValidationError):
         DockerRuntimeResult.model_validate(
             {
                 "ok": False,
@@ -203,11 +122,16 @@ def test_result_envelopes_reject_success_with_error() -> None:
             }
         )
 
+
+def test_removed_error_codes_are_rejected() -> None:
     with pytest.raises(ValidationError):
-        TraceAck.model_validate(
-            {
-                "accepted": False,
-            }
+        ErrorEnvelope.model_validate(
+            {"code": "auth", "message": "deprecated code should fail"}
+        )
+
+    with pytest.raises(ValidationError):
+        ErrorEnvelope.model_validate(
+            {"code": "malformed_request", "message": "deprecated code should fail"}
         )
 
 

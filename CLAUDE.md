@@ -11,8 +11,8 @@ Operational guidance for working in `nl-runtime-primitives`.
 ## Scope Rules
 
 Allowed:
-- Docker and Langfuse runtime primitive contracts
-- Primitive adapters and validation behavior
+- Docker runtime primitive contracts
+- Runtime adapter and validation behavior
 - Typed error-envelope behavior
 - Tests for contract guarantees
 
@@ -44,5 +44,5 @@ If behavior changed, tests should clearly pin the new behavior.
 
 - Keep errors typed and deterministic (`ErrorCode` + `ErrorEnvelope`).
 - Prefer explicit failure over silent fallback.
-- Keep prompt variables and trace metadata JSON-safe at contract boundaries.
+- Keep contracts small and explicit at package boundaries.
 - Keep docs concise; avoid duplicating large architectural narratives.

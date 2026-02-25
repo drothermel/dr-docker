@@ -12,8 +12,6 @@ class ErrorCode(str, Enum):
 
     TIMEOUT = "timeout"
     UNAVAILABLE = "unavailable"
-    AUTH = "auth"
-    MALFORMED_REQUEST = "malformed_request"
     INTERNAL_ERROR = "internal_error"
 
 

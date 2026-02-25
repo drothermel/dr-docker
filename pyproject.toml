@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "nl-runtime-primitives"
-version = "0.2.0"
-description = "Typed runtime integration contracts for Docker and Langfuse primitives"
+version = "0.3.0"
+description = "Typed runtime integration contracts for Docker primitives"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
