@@ -11,6 +11,8 @@ import subprocess
 import time
 from contextlib import suppress
 from pathlib import Path
+from threading import Thread
+from typing import BinaryIO
 
 from .cidfile import new_cidfile_path
 from .cleanup import cleanup_container_from_cidfile
@@ -67,7 +69,7 @@ def _build_docker_cmd(
 
     # Tmpfs mounts
     for tmpfs in request.tmpfs:
-        exec_flag = ",exec" if tmpfs.exec else ""
+        exec_flag = ",exec" if tmpfs.exec_ else ""
         opts = f"{tmpfs.target}:rw,nosuid{exec_flag},size={tmpfs.size}"
         cmd.extend(["--tmpfs", opts])
 
@@ -105,29 +107,38 @@ def _collect_capped_process_output(
     stderr_limit: int,
 ) -> tuple[int, str, str]:
     """Selector-based concurrent stdout/stderr reader with byte caps."""
-    assert proc.stdout is not None
-    assert proc.stderr is not None
+    stdout = proc.stdout
+    stderr = proc.stderr
+    if stdout is None or stderr is None:
+        missing = []
+        if stdout is None:
+            missing.append("stdout")
+        if stderr is None:
+            missing.append("stderr")
+        raise RuntimeError(
+            f"Missing subprocess {' and '.join(missing)} pipe(s) for command: {cmd!r}"
+        )
 
     stream_buffers: dict[int, bytearray] = {
-        proc.stdout.fileno(): bytearray(),
-        proc.stderr.fileno(): bytearray(),
+        stdout.fileno(): bytearray(),
+        stderr.fileno(): bytearray(),
     }
     stream_limits = {
-        proc.stdout.fileno(): stdout_limit,
-        proc.stderr.fileno(): stderr_limit,
+        stdout.fileno(): stdout_limit,
+        stderr.fileno(): stderr_limit,
     }
     stream_totals = {
-        proc.stdout.fileno(): 0,
-        proc.stderr.fileno(): 0,
+        stdout.fileno(): 0,
+        stderr.fileno(): 0,
     }
     stream_truncated = {
-        proc.stdout.fileno(): False,
-        proc.stderr.fileno(): False,
+        stdout.fileno(): False,
+        stderr.fileno(): False,
     }
 
     with selectors.DefaultSelector() as selector:
-        selector.register(proc.stdout, selectors.EVENT_READ)
-        selector.register(proc.stderr, selectors.EVENT_READ)
+        selector.register(stdout, selectors.EVENT_READ)
+        selector.register(stderr, selectors.EVENT_READ)
         start = time.monotonic()
 
         while selector.get_map():
@@ -166,18 +177,18 @@ def _collect_capped_process_output(
         proc.wait()
         raise
 
-    stdout_text = stream_buffers[proc.stdout.fileno()].decode("utf-8", errors="replace")
-    stderr_text = stream_buffers[proc.stderr.fileno()].decode("utf-8", errors="replace")
-    if stream_truncated[proc.stdout.fileno()]:
+    stdout_text = stream_buffers[stdout.fileno()].decode("utf-8", errors="replace")
+    stderr_text = stream_buffers[stderr.fileno()].decode("utf-8", errors="replace")
+    if stream_truncated[stdout.fileno()]:
         stdout_text += (
             "\n[stdout truncated: "
-            f"{stream_totals[proc.stdout.fileno()]} bytes total, "
+            f"{stream_totals[stdout.fileno()]} bytes total, "
             f"capped at {stdout_limit} bytes]"
         )
-    if stream_truncated[proc.stderr.fileno()]:
+    if stream_truncated[stderr.fileno()]:
         stderr_text += (
             "\n[stderr truncated: "
-            f"{stream_totals[proc.stderr.fileno()]} bytes total, "
+            f"{stream_totals[stderr.fileno()]} bytes total, "
             f"capped at {stderr_limit} bytes]"
         )
 
@@ -237,22 +248,30 @@ class SubprocessDockerAdapter:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             ) as proc:
-                assert proc.stdin is not None
-                assert proc.stdout is not None
-                assert proc.stderr is not None
+                stdin = proc.stdin
+                if stdin is None:
+                    raise RuntimeError(
+                        f"Missing subprocess stdin pipe for command: {cmd!r}"
+                    )
 
-                if request.stdin_payload is not None:
-                    with suppress(BrokenPipeError):
-                        proc.stdin.write(request.stdin_payload)
-                proc.stdin.close()
-
-                returncode, stdout_text, stderr_text = _collect_capped_process_output(
-                    proc,
-                    cmd=cmd,
-                    timeout_seconds=float(request.timeout_seconds),
-                    stdout_limit=self._max_stdout_bytes,
-                    stderr_limit=self._max_stderr_bytes,
+                writer = Thread(
+                    target=self._write_stdin_and_close,
+                    args=(stdin, request.stdin_payload),
+                    daemon=True,
                 )
+                writer.start()
+                try:
+                    returncode, stdout_text, stderr_text = (
+                        _collect_capped_process_output(
+                            proc,
+                            cmd=cmd,
+                            timeout_seconds=float(request.timeout_seconds),
+                            stdout_limit=self._max_stdout_bytes,
+                            stderr_limit=self._max_stderr_bytes,
+                        )
+                    )
+                finally:
+                    writer.join()
 
             duration = time.monotonic() - start
             container_id = self._read_cidfile(cidfile)
@@ -301,6 +320,16 @@ class SubprocessDockerAdapter:
                     message=f"Docker execution failed: {exc}",
                 ),
             )
+        except RuntimeError as exc:
+            duration = time.monotonic() - start
+            return DockerRuntimeResult(
+                ok=False,
+                duration_seconds=duration,
+                error=ErrorEnvelope(
+                    code=ErrorCode.INTERNAL_ERROR,
+                    message=str(exc),
+                ),
+            )
 
     @staticmethod
     def _read_cidfile(cidfile: Path) -> str | None:
@@ -309,3 +338,16 @@ class SubprocessDockerAdapter:
             return cid if cid else None
         except OSError:
             return None
+
+    @staticmethod
+    def _write_stdin_and_close(
+        stdin_pipe: BinaryIO,
+        stdin_payload: bytes | None,
+    ) -> None:
+        try:
+            if stdin_payload is not None:
+                with suppress(BrokenPipeError):
+                    stdin_pipe.write(stdin_payload)
+        finally:
+            with suppress(BrokenPipeError, OSError):
+                stdin_pipe.close()

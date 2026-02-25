@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .errors import ErrorEnvelope
 
@@ -28,8 +28,8 @@ class ResourceLimits(BaseModel):
     """Container resource constraints."""
 
     memory: str = "256m"
-    cpus: float = 0.5
-    pids_limit: int = 64
+    cpus: float = Field(default=0.5, gt=0)
+    pids_limit: int = Field(default=64, gt=0)
     cpu_seconds: int | None = None
     fsize_bytes: int | None = None
     nofile: int | None = None
@@ -39,9 +39,11 @@ class ResourceLimits(BaseModel):
 class TmpfsMount(BaseModel):
     """Tmpfs mount specification."""
 
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
     target: str = "/tmp"
     size: str = "16m"
-    exec: bool = False
+    exec_: bool = Field(default=False, alias="exec", serialization_alias="exec")
 
 
 class DockerRuntimeRequest(BaseModel):

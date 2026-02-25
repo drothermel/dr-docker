@@ -25,7 +25,6 @@ def _docker_rm(identifier: str) -> None:
         FileNotFoundError,
         OSError,
         subprocess.SubprocessError,
-        AttributeError,
     ):
         return
 

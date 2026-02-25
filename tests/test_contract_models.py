@@ -164,11 +164,19 @@ def test_resource_limits_defaults() -> None:
     assert limits.nproc is None
 
 
+def test_resource_limits_reject_non_positive_values() -> None:
+    with pytest.raises(ValidationError):
+        ResourceLimits(cpus=0)
+    with pytest.raises(ValidationError):
+        ResourceLimits(pids_limit=0)
+
+
 def test_tmpfs_mount_defaults() -> None:
     tmpfs = TmpfsMount()
     assert tmpfs.target == "/tmp"
     assert tmpfs.size == "16m"
-    assert tmpfs.exec is False
+    assert tmpfs.exec_ is False
+    assert tmpfs.model_dump(mode="json")["exec"] is False
 
 
 def test_request_with_expanded_fields_roundtrip() -> None:
@@ -180,15 +188,17 @@ def test_request_with_expanded_fields_roundtrip() -> None:
         stdin_payload=b"input data",
         security=SecurityProfile(network_disabled=False),
         resources=ResourceLimits(memory="512m", pids_limit=256, fsize_bytes=1024),
-        tmpfs=[TmpfsMount(target="/tmp", size="32m", exec=True)],
+        tmpfs=[TmpfsMount(target="/tmp", size="32m", exec_=True)],
     )
     assert req.entrypoint == "/bin/sh"
     assert req.stdin_payload == b"input data"
     assert req.security.network_disabled is False
     assert req.resources.memory == "512m"
-    assert req.tmpfs[0].exec is True
+    assert req.tmpfs[0].exec_ is True
 
     dump = req.model_dump(mode="json")
+    assert dump["tmpfs"][0]["exec"] is True
     restored = DockerRuntimeRequest.model_validate(dump)
     assert restored.entrypoint == "/bin/sh"
+    assert restored.stdin_payload == b"input data"
     assert restored.resources.pids_limit == 256

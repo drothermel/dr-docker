@@ -148,7 +148,7 @@ def test_build_docker_cmd_tmpfs_with_exec() -> None:
     req = DockerRuntimeRequest(
         image="alpine:latest",
         timeout_seconds=5,
-        tmpfs=[TmpfsMount(target="/tmp", size="64m", exec=True)],
+        tmpfs=[TmpfsMount(target="/tmp", size="64m", exec_=True)],
     )
     cmd = _build_docker_cmd(req, cidfile)
     joined = " ".join(cmd)
@@ -160,7 +160,7 @@ def test_build_docker_cmd_tmpfs_without_exec() -> None:
     req = DockerRuntimeRequest(
         image="alpine:latest",
         timeout_seconds=5,
-        tmpfs=[TmpfsMount(target="/tmp", size="16m", exec=False)],
+        tmpfs=[TmpfsMount(target="/tmp", size="16m", exec_=False)],
     )
     cmd = _build_docker_cmd(req, cidfile)
     tmpfs_idx = cmd.index("--tmpfs")
@@ -204,6 +204,28 @@ def test_build_docker_cmd_env_vars() -> None:
     joined = " ".join(cmd)
     assert "FOO=bar" in joined
     assert "BAZ=qux" in joined
+
+
+def test_build_docker_cmd_working_dir() -> None:
+    cidfile = Path("/tmp/test.cid")
+    req = DockerRuntimeRequest(
+        image="alpine:latest",
+        timeout_seconds=5,
+        working_dir="/app",
+    )
+    cmd = _build_docker_cmd(req, cidfile)
+    assert "/app" in " ".join(cmd)
+
+
+def test_build_docker_cmd_stdin_payload() -> None:
+    cidfile = Path("/tmp/test.cid")
+    req = DockerRuntimeRequest(
+        image="alpine:latest",
+        timeout_seconds=5,
+        stdin_payload=b"payload",
+    )
+    cmd = _build_docker_cmd(req, cidfile)
+    assert "--interactive" in cmd
 
 
 # -- adapter unit tests --

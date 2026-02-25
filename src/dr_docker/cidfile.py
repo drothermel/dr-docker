@@ -25,12 +25,23 @@ def new_cidfile_path(
     suffix: str = ".txt",
 ) -> Path:
     """Return a unique cidfile path that does not already exist."""
-    private_dir = Path(tempfile.mkdtemp(prefix=PRIVATE_CID_DIR_PREFIX))
-    private_dir.chmod(0o700)
+    private_dir: Path | None = None
+    try:
+        private_dir = Path(tempfile.mkdtemp(prefix=PRIVATE_CID_DIR_PREFIX))
+        private_dir.chmod(0o700)
+    except OSError:
+        _LOGGER.exception("Failed to create secure CID temporary directory")
+        if private_dir is not None:
+            with suppress(OSError):
+                private_dir.rmdir()
+        raise
 
     cidfile_fd = -1
+    if private_dir is None:
+        raise RuntimeError("Private CID directory was not created")
     cidfile_path = private_dir / f"{prefix}pending{suffix}"
     try:
+        # Allocate temp file; clean up dir on failure.
         try:
             cidfile_fd, cidfile_name = tempfile.mkstemp(
                 prefix=prefix,
