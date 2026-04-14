@@ -1,6 +1,7 @@
 """Typed Docker runtime contracts and subprocess adapter."""
 
 from .adapters import RuntimeAdapter, RuntimePrimitiveError
+from .batching import run_batch_with_failure_isolation
 from .docker_contract import (
     DockerMount,
     DockerRuntimeRequest,
@@ -26,5 +27,6 @@ __all__ = [
     "SecurityProfile",
     "SubprocessDockerAdapter",
     "TmpfsMount",
+    "run_batch_with_failure_isolation",
     "__version__",
 ]
