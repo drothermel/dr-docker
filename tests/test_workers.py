@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import resource
 from pathlib import Path
 
 import pytest
@@ -139,6 +140,17 @@ def test_mount_worker_directory_supports_relative_worker_path_and_extra_wiring(
     ]
 
 
+def test_with_path_command_preserves_existing_entrypoint(tmp_path: Path) -> None:
+    worker_source = tmp_path / "worker.py"
+    worker_source.write_text("print('worker')\n", encoding="utf-8")
+
+    worker = mount_worker_file(worker_source).with_path_command(entrypoint="python3")
+    updated_worker = worker.with_path_command(args_before_path=["-I"])
+
+    assert updated_worker.entrypoint == "python3"
+    assert updated_worker.command == ["-I", "/worker/worker.py"]
+
+
 def test_mount_worker_directory_rejects_escape_relative_path(tmp_path: Path) -> None:
     worker_dir = tmp_path / "worker"
     worker_dir.mkdir()
@@ -216,3 +228,23 @@ def test_apply_resource_limits_uses_positive_values(
 
     with pytest.raises(ValueError, match="positive"):
         apply_resource_limits(memory_bytes=0)
+
+
+def test_apply_resource_limits_raises_when_rlimit_application_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "dr_docker.workers.json_stdio.resource.getrlimit",
+        lambda _limit_name: (0, resource.RLIM_INFINITY),
+    )
+
+    def _raise_setrlimit(_limit_name: int, _value: tuple[int, int]) -> None:
+        raise OSError("permission denied")
+
+    monkeypatch.setattr(
+        "dr_docker.workers.json_stdio.resource.setrlimit",
+        _raise_setrlimit,
+    )
+
+    with pytest.raises(RuntimeError, match="failed to apply resource limit"):
+        apply_resource_limits(memory_bytes=1024)

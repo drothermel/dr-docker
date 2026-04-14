@@ -131,7 +131,7 @@ def require_container_execution(
 
 
 def _apply_single_rlimit(limit_name: int, value: int) -> None:
-    current_soft, current_hard = resource.getrlimit(limit_name)
+    _current_soft, current_hard = resource.getrlimit(limit_name)
     if current_hard == resource.RLIM_INFINITY:
         target_soft = value
         target_hard = value
@@ -141,13 +141,17 @@ def _apply_single_rlimit(limit_name: int, value: int) -> None:
     try:
         resource.setrlimit(limit_name, (target_soft, target_hard))
     except (OSError, ValueError) as exc:
-        LOGGER.debug(
-            "Unable to apply resource limit %s=%s/%s: %s",
+        LOGGER.error(
+            "Failed to apply resource limit %s=%s/%s: %s",
             limit_name,
             target_soft,
             target_hard,
             exc,
         )
+        raise RuntimeError(
+            "failed to apply resource limit "
+            f"{limit_name}={target_soft}/{target_hard}"
+        ) from exc
 
 
 def apply_resource_limits(

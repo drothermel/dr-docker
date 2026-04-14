@@ -173,7 +173,9 @@ class MountedWorker(BaseModel):
 
         return self.model_copy(
             update={
-                "entrypoint": entrypoint,
+                "entrypoint": entrypoint
+                if entrypoint is not None
+                else self.entrypoint,
                 "command": [
                     *list(args_before_path),
                     self.container_path,
