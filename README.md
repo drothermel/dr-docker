@@ -49,9 +49,11 @@ from dr_docker import (
 from pathlib import Path
 
 from dr_docker import (
+    JsonWorkerExecutionConfig,
     WorkerRuntimePolicy,
     build_mounted_worker_request,
     mount_worker_file,
+    parse_byte_size,
 )
 
 worker = mount_worker_file(Path("worker.py"), mount_target="/sandbox")
@@ -61,8 +63,12 @@ worker = worker.with_path_command(
     working_dir="/tmp",
 )
 
-policy = WorkerRuntimePolicy.small_isolated().model_copy(
+policy = WorkerRuntimePolicy.small_isolated().with_env_overrides().model_copy(
     update={"memory": "1g", "tmpfs_exec": True}
+)
+worker_config = JsonWorkerExecutionConfig.from_runtime_policy(
+    policy,
+    timeout_seconds=30,
 )
 
 request = build_mounted_worker_request(
@@ -71,11 +77,16 @@ request = build_mounted_worker_request(
     timeout_seconds=30,
     policy=policy,
     stdin_payload='{"job": "ping"}',
-    env={"WORKER_MODE": "json"},
+    env={
+        **worker_config.to_env(),
+        "WORKER_MODE": "json",
+    },
 )
 ```
 
 For optional worker-side JSON-over-stdin helpers, use `dr_docker.workers.json_stdio`. That module intentionally stays separate from the core Docker contract layer and includes bounded stdin reading, bounded stdout capture, container guards, and basic RLIMIT helpers.
+
+For reusable size parsing, use `parse_byte_size("1.5g")`.
 
 ## Contract Guarantees
 

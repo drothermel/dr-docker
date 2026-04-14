@@ -18,11 +18,13 @@ from .errors import ErrorCode, ErrorEnvelope
 from .subprocess_adapter import SubprocessDockerAdapter
 from .version import CONTRACT_VERSION, __version__
 from .workers import (
+    JsonWorkerExecutionConfig,
     MountedWorker,
     WorkerRuntimePolicy,
     build_mounted_worker_request,
     mount_worker_directory,
     mount_worker_file,
+    parse_byte_size,
 )
 
 __all__ = [
@@ -32,7 +34,9 @@ __all__ = [
     "DockerRuntimeResult",
     "ErrorCode",
     "ErrorEnvelope",
+    "JsonWorkerExecutionConfig",
     "MountedWorker",
+    "parse_byte_size",
     "ResourceLimits",
     "RuntimeAdapter",
     "RuntimePrimitiveError",

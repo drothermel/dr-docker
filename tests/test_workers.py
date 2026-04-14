@@ -8,14 +8,17 @@ import pytest
 
 from dr_docker import (
     DockerMount,
+    JsonWorkerExecutionConfig,
     TmpfsMount,
     WorkerRuntimePolicy,
     build_mounted_worker_request,
     mount_worker_directory,
     mount_worker_file,
+    parse_byte_size,
 )
 from dr_docker.subprocess_adapter import _build_docker_cmd
 from dr_docker.workers.json_stdio import (
+    DEFAULT_WORKER_IN_CONTAINER_ENV_VAR,
     BoundedTextCapture,
     DockerOnlyExecutionError,
     OversizedPayloadError,
@@ -51,6 +54,60 @@ def test_worker_runtime_policy_defaults_and_overrides() -> None:
     assert limits.memory == "1g"
     assert limits.nproc == 32
     assert tmpfs == [TmpfsMount(target="/tmp", size="64m", exec_=True)]
+
+
+def test_parse_byte_size_supports_integers_suffixes_and_decimals() -> None:
+    assert parse_byte_size("1024") == 1024
+    assert parse_byte_size("1k") == 1024
+    assert parse_byte_size("2M") == 2 * 1024**2
+    assert parse_byte_size("1.5g") == int(1.5 * 1024**3)
+    assert parse_byte_size(" 64m ") == 64 * 1024**2
+
+    with pytest.raises(ValueError):
+        parse_byte_size("bogus")
+
+
+def test_worker_runtime_policy_with_env_overrides(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DR_DOCKER_MEMORY", "2g")
+    monkeypatch.setenv("DR_DOCKER_CPUS", "1.5")
+    monkeypatch.setenv("DR_DOCKER_PIDS_LIMIT", "128")
+    monkeypatch.setenv("DR_DOCKER_TMPFS_SIZE", "32m")
+    monkeypatch.setenv("DR_DOCKER_TMPFS_EXEC", "true")
+    monkeypatch.setenv("DR_DOCKER_FSIZE_BYTES", "4096")
+    monkeypatch.setenv("DR_DOCKER_NOFILE", "256")
+
+    policy = WorkerRuntimePolicy.small_isolated().with_env_overrides()
+
+    assert policy.memory == "2g"
+    assert policy.cpus == 1.5
+    assert policy.pids_limit == 128
+    assert policy.tmpfs_size == "32m"
+    assert policy.tmpfs_exec is True
+    assert policy.fsize_bytes == 4096
+    assert policy.nofile == 256
+    assert policy.nproc == 128
+
+    monkeypatch.setenv("DR_DOCKER_NPROC", "12")
+    explicit_nproc = WorkerRuntimePolicy.small_isolated().with_env_overrides()
+    assert explicit_nproc.nproc == 12
+
+    monkeypatch.setenv("CUSTOM_MEMORY", "3g")
+    custom_prefix_policy = WorkerRuntimePolicy.small_isolated().with_env_overrides(
+        prefix="CUSTOM_"
+    )
+    assert custom_prefix_policy.memory == "3g"
+
+    with pytest.raises(ValueError, match="DR_DOCKER_CPUS"):
+        WorkerRuntimePolicy.small_isolated().with_env_overrides(
+            environ={"DR_DOCKER_CPUS": "oops"}
+        )
+
+
+def test_worker_runtime_policy_with_env_overrides_preserves_explicit_empty_environ() -> None:
+    policy = WorkerRuntimePolicy.small_isolated().with_env_overrides(environ={})
+    assert policy == WorkerRuntimePolicy.small_isolated()
 
 
 def test_mount_worker_file_builds_request_with_policy_and_stdin(
@@ -192,12 +249,14 @@ def test_require_container_execution_honors_runner_flag(
         "dr_docker.workers.json_stdio.is_running_in_container",
         lambda: True,
     )
-    monkeypatch.setenv("WORKER_IN_CONTAINER", "1")
-    require_container_execution(flag_env_var="WORKER_IN_CONTAINER")
+    monkeypatch.setenv(DEFAULT_WORKER_IN_CONTAINER_ENV_VAR, "1")
+    require_container_execution(flag_env_var=DEFAULT_WORKER_IN_CONTAINER_ENV_VAR)
 
-    monkeypatch.setenv("WORKER_IN_CONTAINER", "0")
-    with pytest.raises(DockerOnlyExecutionError, match="WORKER_IN_CONTAINER=1"):
-        require_container_execution(flag_env_var="WORKER_IN_CONTAINER")
+    monkeypatch.setenv(DEFAULT_WORKER_IN_CONTAINER_ENV_VAR, "0")
+    with pytest.raises(
+        DockerOnlyExecutionError, match=DEFAULT_WORKER_IN_CONTAINER_ENV_VAR
+    ):
+        require_container_execution(flag_env_var=DEFAULT_WORKER_IN_CONTAINER_ENV_VAR)
 
 
 def test_apply_resource_limits_uses_positive_values(
@@ -248,3 +307,76 @@ def test_apply_resource_limits_raises_when_rlimit_application_fails(
 
     with pytest.raises(RuntimeError, match="failed to apply resource limit"):
         apply_resource_limits(memory_bytes=1024)
+
+
+def test_json_worker_execution_config_round_trips_and_applies_policy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = JsonWorkerExecutionConfig.from_runtime_policy(
+        WorkerRuntimePolicy.small_isolated().model_copy(
+            update={"memory": "1.5g", "fsize_bytes": 8192, "nofile": 64, "nproc": 32}
+        ),
+        timeout_seconds=2.2,
+        stdin_limit_bytes=4096,
+        stdout_limit_bytes=8192,
+    )
+
+    assert config.memory_bytes == int(1.5 * 1024**3)
+    assert config.cpu_seconds == 3
+    assert config.file_bytes == 8192
+    assert config.nofile == 64
+    assert config.nproc == 32
+
+    env = config.to_env()
+    round_tripped = JsonWorkerExecutionConfig.from_env(environ=env)
+    assert round_tripped == config
+
+    monkeypatch.setenv("DR_DOCKER_WORKER_MEMORY_BYTES", "2g")
+    monkeypatch.setenv("DR_DOCKER_WORKER_MAX_STDOUT_BYTES", "16k")
+    monkeypatch.setenv("DR_DOCKER_WORKER_SKIP_LIMITS", "yes")
+    overridden = config.with_env_overrides()
+    assert overridden.memory_bytes == 2 * 1024**3
+    assert overridden.stdout_limit_bytes == 16 * 1024
+    assert overridden.skip_limits is True
+
+    with pytest.raises(ValueError, match="DR_DOCKER_WORKER_MEMORY_BYTES"):
+        config.with_env_overrides(environ={"DR_DOCKER_WORKER_MEMORY_BYTES": "bad"})
+
+
+def test_json_worker_execution_config_with_env_overrides_preserves_explicit_empty_environ() -> None:
+    config = JsonWorkerExecutionConfig()
+    assert config.with_env_overrides(environ={}) == config
+
+
+def test_json_worker_execution_config_apply_resource_limits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    applied: list[dict[str, int | None | bool]] = []
+
+    monkeypatch.setattr(
+        "dr_docker.workers.json_stdio.apply_resource_limits",
+        lambda **kwargs: applied.append(kwargs),
+    )
+
+    config = JsonWorkerExecutionConfig(
+        stdin_limit_bytes=1024,
+        stdout_limit_bytes=1024,
+        cpu_seconds=5,
+        memory_bytes=4096,
+        file_bytes=2048,
+        nofile=32,
+        nproc=16,
+        skip_limits=False,
+    )
+    config.apply_resource_limits(skip_cpu=True)
+
+    assert applied == [
+        {
+            "cpu_seconds": 5,
+            "memory_bytes": 4096,
+            "file_bytes": 2048,
+            "nofile": 32,
+            "nproc": 16,
+            "skip_cpu": True,
+        }
+    ]
