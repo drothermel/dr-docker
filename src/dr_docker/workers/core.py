@@ -70,13 +70,7 @@ def _parse_int_env(
     try:
         return int(raw_value)
     except ValueError:
-        LOGGER.warning(
-            "Invalid integer for %s=%r, preserving current value %r",
-            env_name,
-            raw_value,
-            current_value,
-        )
-        return current_value
+        raise ValueError(f"Invalid integer for {env_name}={raw_value!r}") from None
 
 
 def _parse_float_env(
@@ -90,13 +84,7 @@ def _parse_float_env(
     try:
         return float(raw_value)
     except ValueError:
-        LOGGER.warning(
-            "Invalid float for %s=%r, preserving current value %r",
-            env_name,
-            raw_value,
-            current_value,
-        )
-        return current_value
+        raise ValueError(f"Invalid float for {env_name}={raw_value!r}") from None
 
 
 def _parse_bool_env(
@@ -112,13 +100,7 @@ def _parse_bool_env(
         return True
     if normalized in {"0", "false", "no", "off"}:
         return False
-    LOGGER.warning(
-        "Invalid boolean for %s=%r, preserving current value %r",
-        env_name,
-        raw_value,
-        current_value,
-    )
-    return current_value
+    raise ValueError(f"Invalid boolean for {env_name}={raw_value!r}")
 
 
 class WorkerRuntimePolicy(BaseModel):
@@ -160,7 +142,7 @@ class WorkerRuntimePolicy(BaseModel):
     ) -> "WorkerRuntimePolicy":
         """Return a copy with env-based overrides applied."""
 
-        env = environ or os.environ
+        env = os.environ if environ is None else environ
         pids_env_name = f"{prefix}PIDS_LIMIT"
         nproc_env_name = f"{prefix}NPROC"
         pids_limit = _parse_int_env(env, pids_env_name, self.pids_limit)

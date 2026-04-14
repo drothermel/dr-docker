@@ -47,13 +47,7 @@ def _parse_int_env(
     try:
         return int(raw_value)
     except ValueError:
-        LOGGER.warning(
-            "Invalid integer for %s=%r, preserving current value %r",
-            env_name,
-            raw_value,
-            current_value,
-        )
-        return current_value
+        raise ValueError(f"Invalid integer for {env_name}={raw_value!r}") from None
 
 
 def _parse_bool_env(
@@ -69,13 +63,7 @@ def _parse_bool_env(
         return True
     if normalized in {"0", "false", "no", "off"}:
         return False
-    LOGGER.warning(
-        "Invalid boolean for %s=%r, preserving current value %r",
-        env_name,
-        raw_value,
-        current_value,
-    )
-    return current_value
+    raise ValueError(f"Invalid boolean for {env_name}={raw_value!r}")
 
 
 def _parse_byte_size_env(
@@ -89,13 +77,7 @@ def _parse_byte_size_env(
     try:
         return parse_byte_size(raw_value)
     except ValueError:
-        LOGGER.warning(
-            "Invalid byte size for %s=%r, preserving current value %r",
-            env_name,
-            raw_value,
-            current_value,
-        )
-        return current_value
+        raise ValueError(f"Invalid byte size for {env_name}={raw_value!r}") from None
 
 
 class BoundedTextCapture:
@@ -185,7 +167,7 @@ class JsonWorkerExecutionConfig(BaseModel):
         prefix: str = DEFAULT_WORKER_ENV_PREFIX,
         environ: Mapping[str, str] | None = None,
     ) -> "JsonWorkerExecutionConfig":
-        env = environ or os.environ
+        env = os.environ.copy() if environ is None else environ
         return self.model_copy(
             update={
                 "stdin_limit_bytes": _parse_byte_size_env(

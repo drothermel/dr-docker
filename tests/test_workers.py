@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import io
-import logging
 import resource
 from pathlib import Path
 
@@ -70,7 +69,6 @@ def test_parse_byte_size_supports_integers_suffixes_and_decimals() -> None:
 
 def test_worker_runtime_policy_with_env_overrides(
     monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
 ) -> None:
     monkeypatch.setenv("DR_DOCKER_MEMORY", "2g")
     monkeypatch.setenv("DR_DOCKER_CPUS", "1.5")
@@ -101,11 +99,15 @@ def test_worker_runtime_policy_with_env_overrides(
     )
     assert custom_prefix_policy.memory == "3g"
 
-    monkeypatch.setenv("DR_DOCKER_CPUS", "oops")
-    with caplog.at_level(logging.WARNING):
-        preserved = WorkerRuntimePolicy.small_isolated().with_env_overrides()
-    assert preserved.cpus == WorkerRuntimePolicy.small_isolated().cpus
-    assert "Invalid float for DR_DOCKER_CPUS" in caplog.text
+    with pytest.raises(ValueError, match="DR_DOCKER_CPUS"):
+        WorkerRuntimePolicy.small_isolated().with_env_overrides(
+            environ={"DR_DOCKER_CPUS": "oops"}
+        )
+
+
+def test_worker_runtime_policy_with_env_overrides_preserves_explicit_empty_environ() -> None:
+    policy = WorkerRuntimePolicy.small_isolated().with_env_overrides(environ={})
+    assert policy == WorkerRuntimePolicy.small_isolated()
 
 
 def test_mount_worker_file_builds_request_with_policy_and_stdin(
@@ -336,6 +338,14 @@ def test_json_worker_execution_config_round_trips_and_applies_policy(
     assert overridden.memory_bytes == 2 * 1024**3
     assert overridden.stdout_limit_bytes == 16 * 1024
     assert overridden.skip_limits is True
+
+    with pytest.raises(ValueError, match="DR_DOCKER_WORKER_MEMORY_BYTES"):
+        config.with_env_overrides(environ={"DR_DOCKER_WORKER_MEMORY_BYTES": "bad"})
+
+
+def test_json_worker_execution_config_with_env_overrides_preserves_explicit_empty_environ() -> None:
+    config = JsonWorkerExecutionConfig()
+    assert config.with_env_overrides(environ={}) == config
 
 
 def test_json_worker_execution_config_apply_resource_limits(
