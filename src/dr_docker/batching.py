@@ -36,6 +36,16 @@ def run_batch_with_failure_isolation(
 ) -> tuple[dict[str, TResult], dict[str, Exception]]:
     """Run batched work, recursively splitting on batch-level infra failures."""
 
+    seen_item_ids: set[str] = set()
+    duplicate_item_ids: list[str] = []
+    for item_id, _item in items_by_id:
+        if item_id in seen_item_ids and item_id not in duplicate_item_ids:
+            duplicate_item_ids.append(item_id)
+        seen_item_ids.add(item_id)
+    if duplicate_item_ids:
+        duplicate_ids = ", ".join(repr(item_id) for item_id in duplicate_item_ids)
+        raise ValueError(f"Duplicate item IDs are not allowed: {duplicate_ids}")
+
     results: dict[str, TResult] = {}
     infra_failures: dict[str, Exception] = {}
 

@@ -97,6 +97,21 @@ def test_run_batch_with_failure_isolation_handles_empty_input() -> None:
     assert calls == 0
 
 
+def test_run_batch_with_failure_isolation_rejects_duplicate_item_ids() -> None:
+    def run_batch(items: list[int]) -> list[int]:
+        return items
+
+    try:
+        run_batch_with_failure_isolation(
+            [("dup", 1), ("ok", 2), ("dup", 3), ("dup", 4)],
+            run_batch,
+        )
+    except ValueError as exc:
+        assert str(exc) == "Duplicate item IDs are not allowed: 'dup'"
+    else:
+        raise AssertionError("Expected duplicate item IDs to raise ValueError")
+
+
 def test_run_batch_with_failure_isolation_preserves_result_id_alignment() -> None:
     def run_batch(items: list[int]) -> list[str]:
         return [f"value-{item}" for item in items]
