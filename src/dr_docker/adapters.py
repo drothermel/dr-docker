@@ -21,3 +21,18 @@ class RuntimeAdapter(Protocol):
     def execute_in_runtime(
         self, request: DockerRuntimeRequest
     ) -> DockerRuntimeResult: ...
+
+
+def execute_in_runtime_or_raise(
+    adapter: RuntimeAdapter, request: DockerRuntimeRequest
+) -> DockerRuntimeResult:
+    """Execute one runtime request and raise on typed infra failure."""
+
+    result = adapter.execute_in_runtime(request)
+    if result.ok:
+        return result
+
+    error = result.error
+    if error is None:
+        raise ValueError("RuntimeAdapter returned ok=False without an error envelope")
+    raise RuntimePrimitiveError(error)

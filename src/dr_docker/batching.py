@@ -5,7 +5,11 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from typing import TypeVar, overload
 
-from .adapters import RuntimeAdapter, RuntimePrimitiveError
+from .adapters import (
+    RuntimeAdapter,
+    RuntimePrimitiveError,
+    execute_in_runtime_or_raise,
+)
 from .docker_contract import DockerRuntimeRequest, DockerRuntimeResult
 
 TItem = TypeVar("TItem")
@@ -87,13 +91,7 @@ def execute_batch_in_container(
         return []
 
     request = build_request(batch_items)
-    runtime_result = adapter.execute_in_runtime(request)
-    if not runtime_result.ok:
-        error = runtime_result.error
-        if error is None:
-            raise ValueError("RuntimeAdapter returned ok=False without an error envelope")
-        raise RuntimePrimitiveError(error)
-
+    runtime_result = execute_in_runtime_or_raise(adapter, request)
     results = parse_results(runtime_result)
     expected_count = len(batch_items)
     actual_count = len(results)
