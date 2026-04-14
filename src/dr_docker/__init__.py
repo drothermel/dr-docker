@@ -17,6 +17,13 @@ from .docker_contract import (
 from .errors import ErrorCode, ErrorEnvelope
 from .subprocess_adapter import SubprocessDockerAdapter
 from .version import CONTRACT_VERSION, __version__
+from .workers import (
+    MountedWorker,
+    WorkerRuntimePolicy,
+    build_mounted_worker_request,
+    mount_worker_directory,
+    mount_worker_file,
+)
 
 __all__ = [
     "CONTRACT_VERSION",
@@ -25,14 +32,19 @@ __all__ = [
     "DockerRuntimeResult",
     "ErrorCode",
     "ErrorEnvelope",
+    "MountedWorker",
     "ResourceLimits",
     "RuntimeAdapter",
     "RuntimePrimitiveError",
     "SecurityProfile",
     "SubprocessDockerAdapter",
     "TmpfsMount",
+    "WorkerRuntimePolicy",
+    "build_mounted_worker_request",
     "execute_in_runtime_or_raise",
     "execute_batch_in_container",
+    "mount_worker_directory",
+    "mount_worker_file",
     "run_batch_with_failure_isolation",
     "__version__",
 ]
