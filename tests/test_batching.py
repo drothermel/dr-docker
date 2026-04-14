@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from dr_docker import (
+    DockerRuntimeRequest,
+    DockerRuntimeResult,
     ErrorCode,
     ErrorEnvelope,
     RuntimePrimitiveError,
+    execute_batch_in_container,
     run_batch_with_failure_isolation,
 )
 
@@ -16,6 +19,157 @@ def _runtime_infra_error(message: str) -> RuntimePrimitiveError:
             retriable=True,
         )
     )
+
+
+class _StubRuntimeAdapter:
+    def __init__(self, result: DockerRuntimeResult) -> None:
+        self.result = result
+        self.requests: list[DockerRuntimeRequest] = []
+
+    def execute_in_runtime(self, request: DockerRuntimeRequest) -> DockerRuntimeResult:
+        self.requests.append(request)
+        return self.result
+
+
+def test_execute_batch_in_container_returns_aligned_results() -> None:
+    adapter = _StubRuntimeAdapter(
+        DockerRuntimeResult(ok=True, exit_code=0, stdout='{"results":[10,20,30]}')
+    )
+    built_batches: list[list[str]] = []
+    parsed_stdout: list[str] = []
+
+    results = execute_batch_in_container(
+        ["job-a", "job-b", "job-c"],
+        adapter=adapter,
+        build_request=lambda items: (
+            built_batches.append(items.copy())
+            or DockerRuntimeRequest(
+                image="generic-worker:latest",
+                command=["/app/worker", "run-batch"],
+                timeout_seconds=45,
+                stdin_payload="batch payload".encode("utf-8"),
+            )
+        ),
+        parse_results=lambda runtime_result: (
+            parsed_stdout.append(runtime_result.stdout) or [10, 20, 30]
+        ),
+    )
+
+    assert results == [10, 20, 30]
+    assert built_batches == [["job-a", "job-b", "job-c"]]
+    assert parsed_stdout == ['{"results":[10,20,30]}']
+    assert len(adapter.requests) == 1
+    assert adapter.requests[0].image == "generic-worker:latest"
+
+
+def test_execute_batch_in_container_rejects_result_count_mismatch() -> None:
+    adapter = _StubRuntimeAdapter(DockerRuntimeResult(ok=True, exit_code=0))
+
+    try:
+        execute_batch_in_container(
+            ["alpha", "beta"],
+            adapter=adapter,
+            build_request=lambda items: DockerRuntimeRequest(
+                image="generic-worker:latest",
+                command=["worker"],
+                timeout_seconds=len(items) + 1,
+            ),
+            parse_results=lambda runtime_result: [runtime_result.exit_code],
+        )
+    except ValueError as exc:
+        assert str(exc) == "Batch result count mismatch: expected 2, got 1"
+    else:
+        raise AssertionError("Expected batch result count mismatch to raise ValueError")
+
+
+def test_execute_batch_in_container_returns_empty_list_without_running() -> None:
+    calls = {"build": 0, "parse": 0}
+    adapter = _StubRuntimeAdapter(DockerRuntimeResult(ok=True, exit_code=0))
+
+    results = execute_batch_in_container(
+        [],
+        adapter=adapter,
+        build_request=lambda items: (
+            calls.__setitem__("build", calls["build"] + 1)
+            or DockerRuntimeRequest(
+                image="unused",
+                command=["worker"],
+                timeout_seconds=max(1, len(items)),
+            )
+        ),
+        parse_results=lambda runtime_result: (
+            calls.__setitem__("parse", calls["parse"] + 1) or [runtime_result.stdout]
+        ),
+    )
+
+    assert results == []
+    assert calls == {"build": 0, "parse": 0}
+    assert adapter.requests == []
+
+
+def test_execute_batch_in_container_raises_runtime_primitive_error_on_infra_failure() -> None:
+    adapter = _StubRuntimeAdapter(
+        DockerRuntimeResult(
+            ok=False,
+            error=ErrorEnvelope(
+                code=ErrorCode.TIMEOUT,
+                message="Container timed out after 12s",
+                retriable=True,
+            ),
+        )
+    )
+
+    try:
+        execute_batch_in_container(
+            ["task-1"],
+            adapter=adapter,
+            build_request=lambda items: DockerRuntimeRequest(
+                image="generic-worker:latest",
+                command=["worker"],
+                timeout_seconds=len(items) * 12,
+            ),
+            parse_results=lambda runtime_result: [runtime_result.stdout],
+        )
+    except RuntimePrimitiveError as exc:
+        assert exc.error.code is ErrorCode.TIMEOUT
+        assert exc.error.message == "Container timed out after 12s"
+        assert exc.error.retriable is True
+    else:
+        raise AssertionError("Expected infra failure to raise RuntimePrimitiveError")
+
+
+def test_execute_batch_in_container_stays_payload_neutral() -> None:
+    adapter = _StubRuntimeAdapter(
+        DockerRuntimeResult(
+            ok=True,
+            exit_code=0,
+            stdout='{"results":[{"status":"ok"},{"status":"failed","reason":"bad row"}]}',
+        )
+    )
+
+    results = execute_batch_in_container(
+        [
+            {"input_uri": "s3://bucket/a.csv"},
+            {"input_uri": "s3://bucket/b.csv"},
+        ],
+        adapter=adapter,
+        build_request=lambda items: DockerRuntimeRequest(
+            image="data-worker:stable",
+            command=["worker", "transform-batch"],
+            timeout_seconds=90,
+            stdin_payload=str(items).encode("utf-8"),
+        ),
+        parse_results=lambda runtime_result: [
+            {"status": "ok"},
+            {"status": "failed", "reason": "bad row"},
+        ],
+    )
+
+    assert results == [
+        {"status": "ok"},
+        {"status": "failed", "reason": "bad row"},
+    ]
+    assert adapter.requests[0].command == ["worker", "transform-batch"]
 
 
 def test_run_batch_with_failure_isolation_full_batch_success() -> None:

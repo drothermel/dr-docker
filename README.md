@@ -27,6 +27,7 @@ from dr_docker import (
     SubprocessDockerAdapter,
     TmpfsMount,
     __version__,
+    execute_batch_in_container,
     run_batch_with_failure_isolation,
 )
 ```

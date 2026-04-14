@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import TypeVar, overload
 
-from .adapters import RuntimePrimitiveError
+from .adapters import RuntimeAdapter, RuntimePrimitiveError
+from .docker_contract import DockerRuntimeRequest, DockerRuntimeResult
 
 TItem = TypeVar("TItem")
 TResult = TypeVar("TResult")
@@ -70,3 +71,35 @@ def run_batch_with_failure_isolation(
 
     process_chunk(items_by_id)
     return results, infra_failures
+
+
+def execute_batch_in_container(
+    items: Sequence[TItem],
+    *,
+    adapter: RuntimeAdapter,
+    build_request: Callable[[list[TItem]], DockerRuntimeRequest],
+    parse_results: Callable[[DockerRuntimeResult], list[TResult]],
+) -> list[TResult]:
+    """Execute one container for many logical jobs and return aligned results."""
+
+    batch_items = list(items)
+    if not batch_items:
+        return []
+
+    request = build_request(batch_items)
+    runtime_result = adapter.execute_in_runtime(request)
+    if not runtime_result.ok:
+        error = runtime_result.error
+        if error is None:
+            raise ValueError("RuntimeAdapter returned ok=False without an error envelope")
+        raise RuntimePrimitiveError(error)
+
+    results = parse_results(runtime_result)
+    expected_count = len(batch_items)
+    actual_count = len(results)
+    if actual_count != expected_count:
+        raise ValueError(
+            f"Batch result count mismatch: expected {expected_count}, got {actual_count}"
+        )
+
+    return results
