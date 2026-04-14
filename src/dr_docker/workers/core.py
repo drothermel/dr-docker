@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+import logging
+import os
 from pathlib import Path, PurePosixPath
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -17,6 +19,7 @@ from ..docker_contract import (
 
 DEFAULT_WORKER_MOUNT_TARGET = "/worker"
 DEFAULT_WORKER_TMPFS_TARGET = "/tmp"
+LOGGER = logging.getLogger(__name__)
 
 
 def _normalize_absolute_container_path(
@@ -56,6 +59,68 @@ def _resolve_existing_source(source: str | Path, *, expected: str) -> Path:
     return source_path.resolve()
 
 
+def _parse_int_env(
+    environ: Mapping[str, str],
+    env_name: str,
+    current_value: int | None,
+) -> int | None:
+    raw_value = environ.get(env_name)
+    if raw_value is None:
+        return current_value
+    try:
+        return int(raw_value)
+    except ValueError:
+        LOGGER.warning(
+            "Invalid integer for %s=%r, preserving current value %r",
+            env_name,
+            raw_value,
+            current_value,
+        )
+        return current_value
+
+
+def _parse_float_env(
+    environ: Mapping[str, str],
+    env_name: str,
+    current_value: float,
+) -> float:
+    raw_value = environ.get(env_name)
+    if raw_value is None:
+        return current_value
+    try:
+        return float(raw_value)
+    except ValueError:
+        LOGGER.warning(
+            "Invalid float for %s=%r, preserving current value %r",
+            env_name,
+            raw_value,
+            current_value,
+        )
+        return current_value
+
+
+def _parse_bool_env(
+    environ: Mapping[str, str],
+    env_name: str,
+    current_value: bool,
+) -> bool:
+    raw_value = environ.get(env_name)
+    if raw_value is None:
+        return current_value
+    normalized = raw_value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    LOGGER.warning(
+        "Invalid boolean for %s=%r, preserving current value %r",
+        env_name,
+        raw_value,
+        current_value,
+    )
+    return current_value
+
+
 class WorkerRuntimePolicy(BaseModel):
     """Reusable Docker policy defaults for a small isolated worker runtime."""
 
@@ -86,6 +151,49 @@ class WorkerRuntimePolicy(BaseModel):
     def small_isolated(cls) -> "WorkerRuntimePolicy":
         """Return the default preset for a small isolated worker container."""
         return cls()
+
+    def with_env_overrides(
+        self,
+        *,
+        prefix: str = "DR_DOCKER_",
+        environ: Mapping[str, str] | None = None,
+    ) -> "WorkerRuntimePolicy":
+        """Return a copy with env-based overrides applied."""
+
+        env = environ or os.environ
+        pids_env_name = f"{prefix}PIDS_LIMIT"
+        nproc_env_name = f"{prefix}NPROC"
+        pids_limit = _parse_int_env(env, pids_env_name, self.pids_limit)
+        nproc = _parse_int_env(env, nproc_env_name, self.nproc)
+        if pids_env_name in env and nproc_env_name not in env:
+            nproc = pids_limit
+
+        return self.model_copy(
+            update={
+                "memory": env.get(f"{prefix}MEMORY", self.memory),
+                "cpus": _parse_float_env(env, f"{prefix}CPUS", self.cpus),
+                "pids_limit": pids_limit,
+                "cpu_seconds": _parse_int_env(
+                    env,
+                    f"{prefix}CPU_SECONDS",
+                    self.cpu_seconds,
+                ),
+                "tmpfs_size": env.get(f"{prefix}TMPFS_SIZE", self.tmpfs_size),
+                "tmpfs_target": env.get(f"{prefix}TMPFS_TARGET", self.tmpfs_target),
+                "tmpfs_exec": _parse_bool_env(
+                    env,
+                    f"{prefix}TMPFS_EXEC",
+                    self.tmpfs_exec,
+                ),
+                "fsize_bytes": _parse_int_env(
+                    env,
+                    f"{prefix}FSIZE_BYTES",
+                    self.fsize_bytes,
+                ),
+                "nofile": _parse_int_env(env, f"{prefix}NOFILE", self.nofile),
+                "nproc": nproc,
+            }
+        )
 
     def to_resource_limits(self) -> ResourceLimits:
         return ResourceLimits(
@@ -173,9 +281,7 @@ class MountedWorker(BaseModel):
 
         return self.model_copy(
             update={
-                "entrypoint": entrypoint
-                if entrypoint is not None
-                else self.entrypoint,
+                "entrypoint": entrypoint if entrypoint is not None else self.entrypoint,
                 "command": [
                     *list(args_before_path),
                     self.container_path,

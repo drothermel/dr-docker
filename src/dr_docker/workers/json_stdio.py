@@ -2,14 +2,23 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import json
 import logging
+import math
 import os
 import resource
 import sys
 from typing import Any, TextIO
 
+from pydantic import BaseModel, ConfigDict, Field
+
+from .core import WorkerRuntimePolicy
+from .sizing import parse_byte_size
+
 LOGGER = logging.getLogger(__name__)
+DEFAULT_WORKER_ENV_PREFIX = "DR_DOCKER_WORKER_"
+DEFAULT_WORKER_IN_CONTAINER_ENV_VAR = f"{DEFAULT_WORKER_ENV_PREFIX}IN_CONTAINER"
 
 
 class OversizedPayloadError(ValueError):
@@ -25,6 +34,68 @@ class OversizedPayloadError(ValueError):
 
 class DockerOnlyExecutionError(RuntimeError):
     """Raised when a worker is executed outside the expected container path."""
+
+
+def _parse_int_env(
+    environ: Mapping[str, str],
+    env_name: str,
+    current_value: int | None,
+) -> int | None:
+    raw_value = environ.get(env_name)
+    if raw_value is None:
+        return current_value
+    try:
+        return int(raw_value)
+    except ValueError:
+        LOGGER.warning(
+            "Invalid integer for %s=%r, preserving current value %r",
+            env_name,
+            raw_value,
+            current_value,
+        )
+        return current_value
+
+
+def _parse_bool_env(
+    environ: Mapping[str, str],
+    env_name: str,
+    current_value: bool,
+) -> bool:
+    raw_value = environ.get(env_name)
+    if raw_value is None:
+        return current_value
+    normalized = raw_value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    LOGGER.warning(
+        "Invalid boolean for %s=%r, preserving current value %r",
+        env_name,
+        raw_value,
+        current_value,
+    )
+    return current_value
+
+
+def _parse_byte_size_env(
+    environ: Mapping[str, str],
+    env_name: str,
+    current_value: int | None,
+) -> int | None:
+    raw_value = environ.get(env_name)
+    if raw_value is None:
+        return current_value
+    try:
+        return parse_byte_size(raw_value)
+    except ValueError:
+        LOGGER.warning(
+            "Invalid byte size for %s=%r, preserving current value %r",
+            env_name,
+            raw_value,
+            current_value,
+        )
+        return current_value
 
 
 class BoundedTextCapture:
@@ -62,6 +133,130 @@ class BoundedTextCapture:
 
     def getvalue(self) -> str:
         return "".join(self._parts)
+
+
+class JsonWorkerExecutionConfig(BaseModel):
+    """Typed execution config for JSON-over-stdin workers."""
+
+    model_config = ConfigDict(frozen=True)
+
+    stdin_limit_bytes: int = Field(default=1_048_576, gt=0)
+    stdout_limit_bytes: int = Field(default=1_048_576, gt=0)
+    cpu_seconds: int = Field(default=2, gt=0)
+    memory_bytes: int = Field(default=268_435_456, gt=0)
+    file_bytes: int | None = Field(default=1_048_576, gt=0)
+    nofile: int | None = Field(default=None, gt=0)
+    nproc: int | None = Field(default=64, gt=0)
+    skip_limits: bool = False
+
+    @classmethod
+    def from_runtime_policy(
+        cls,
+        policy: WorkerRuntimePolicy,
+        *,
+        timeout_seconds: float,
+        stdin_limit_bytes: int = 1_048_576,
+        stdout_limit_bytes: int = 1_048_576,
+        skip_limits: bool = False,
+    ) -> "JsonWorkerExecutionConfig":
+        return cls(
+            stdin_limit_bytes=stdin_limit_bytes,
+            stdout_limit_bytes=stdout_limit_bytes,
+            cpu_seconds=max(1, math.ceil(timeout_seconds)),
+            memory_bytes=parse_byte_size(policy.memory),
+            file_bytes=policy.fsize_bytes,
+            nofile=policy.nofile,
+            nproc=policy.nproc,
+            skip_limits=skip_limits,
+        )
+
+    @classmethod
+    def from_env(
+        cls,
+        *,
+        prefix: str = DEFAULT_WORKER_ENV_PREFIX,
+        environ: Mapping[str, str] | None = None,
+    ) -> "JsonWorkerExecutionConfig":
+        return cls().with_env_overrides(prefix=prefix, environ=environ)
+
+    def with_env_overrides(
+        self,
+        *,
+        prefix: str = DEFAULT_WORKER_ENV_PREFIX,
+        environ: Mapping[str, str] | None = None,
+    ) -> "JsonWorkerExecutionConfig":
+        env = environ or os.environ
+        return self.model_copy(
+            update={
+                "stdin_limit_bytes": _parse_byte_size_env(
+                    env,
+                    f"{prefix}MAX_STDIN_BYTES",
+                    self.stdin_limit_bytes,
+                ),
+                "stdout_limit_bytes": _parse_byte_size_env(
+                    env,
+                    f"{prefix}MAX_STDOUT_BYTES",
+                    self.stdout_limit_bytes,
+                ),
+                "cpu_seconds": _parse_int_env(
+                    env,
+                    f"{prefix}CPU_SECONDS",
+                    self.cpu_seconds,
+                ),
+                "memory_bytes": _parse_byte_size_env(
+                    env,
+                    f"{prefix}MEMORY_BYTES",
+                    self.memory_bytes,
+                ),
+                "file_bytes": _parse_byte_size_env(
+                    env,
+                    f"{prefix}FILE_BYTES",
+                    self.file_bytes,
+                ),
+                "nofile": _parse_int_env(
+                    env,
+                    f"{prefix}NOFILE",
+                    self.nofile,
+                ),
+                "nproc": _parse_int_env(env, f"{prefix}NPROC", self.nproc),
+                "skip_limits": _parse_bool_env(
+                    env,
+                    f"{prefix}SKIP_LIMITS",
+                    self.skip_limits,
+                ),
+            }
+        )
+
+    def to_env(
+        self,
+        *,
+        prefix: str = DEFAULT_WORKER_ENV_PREFIX,
+    ) -> dict[str, str]:
+        env = {
+            f"{prefix}IN_CONTAINER": "1",
+            f"{prefix}MAX_STDIN_BYTES": str(self.stdin_limit_bytes),
+            f"{prefix}MAX_STDOUT_BYTES": str(self.stdout_limit_bytes),
+            f"{prefix}CPU_SECONDS": str(self.cpu_seconds),
+            f"{prefix}MEMORY_BYTES": str(self.memory_bytes),
+            f"{prefix}SKIP_LIMITS": "true" if self.skip_limits else "false",
+        }
+        if self.file_bytes is not None:
+            env[f"{prefix}FILE_BYTES"] = str(self.file_bytes)
+        if self.nofile is not None:
+            env[f"{prefix}NOFILE"] = str(self.nofile)
+        if self.nproc is not None:
+            env[f"{prefix}NPROC"] = str(self.nproc)
+        return env
+
+    def apply_resource_limits(self, *, skip_cpu: bool = False) -> None:
+        apply_resource_limits(
+            cpu_seconds=self.cpu_seconds,
+            memory_bytes=self.memory_bytes,
+            file_bytes=self.file_bytes,
+            nofile=self.nofile,
+            nproc=self.nproc,
+            skip_cpu=skip_cpu or self.skip_limits,
+        )
 
 
 def read_stdin_bounded(
@@ -149,8 +344,7 @@ def _apply_single_rlimit(limit_name: int, value: int) -> None:
             exc,
         )
         raise RuntimeError(
-            "failed to apply resource limit "
-            f"{limit_name}={target_soft}/{target_hard}"
+            f"failed to apply resource limit {limit_name}={target_soft}/{target_hard}"
         ) from exc
 
 
