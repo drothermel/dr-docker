@@ -4,6 +4,7 @@ import re
 import pytest
 from pydantic import ValidationError
 
+import dr_docker.version as version_module
 from dr_docker import (
     CONTRACT_VERSION,
     DockerMount,
@@ -143,6 +144,15 @@ def test_contract_version_matches_package_version() -> None:
     )
     assert version_match is not None
     assert version_match.group("version") == __version__
+
+
+def test_version_from_pyproject_raises_clear_error_when_file_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(version_module.Path, "is_file", lambda self: False)
+
+    with pytest.raises(RuntimeError, match=r"Expected pyproject.toml at .* does not exist"):
+        version_module._version_from_pyproject()
 
 
 def test_security_profile_defaults() -> None:
